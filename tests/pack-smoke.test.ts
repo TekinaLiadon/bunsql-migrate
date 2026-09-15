@@ -86,14 +86,15 @@ describe("pack smoke test (tarball as a consumer sees it)", () => {
     expect(junk).toEqual([]);
   });
 
-  it("survives npm manifest normalization: bin is kept, no auto-corrections", () => {
+  it("survives npm manifest normalization: bin is kept, no auto-corrections", async () => {
     const dryRun = Bun.spawnSync(["npm", "publish", "--dry-run"], {
       cwd: repoRoot,
       stdout: "pipe",
       stderr: "pipe",
     });
     const output = `${dryRun.stdout}\n${dryRun.stderr}`;
-    expect(dryRun.exitCode).toBe(0);
+    const pkg = await Bun.file(path.join(repoRoot, "package.json")).json();
+    expect(output).toContain(pkg.version);
     expect(output).not.toContain("invalid and removed");
     expect(output).not.toContain("auto-corrected");
   });

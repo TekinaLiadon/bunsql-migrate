@@ -1,23 +1,20 @@
 import path from "node:path";
-import { getDatabaseUrl } from "../core/env.js";
-import { createDriver } from "../core/driver.js";
 import { checksumFile, listFiles, resolveListDir } from "../core/fs.js";
 import { log } from "../core/console.js";
 import { type MigrateOptions, type MigrateUpResult, ChecksumDriftError } from "./options.js";
+import { runWithDriver } from "./run-with-driver.js";
 
 export async function migrateUp(options: MigrateOptions = {}): Promise<MigrateUpResult> {
-  const url = getDatabaseUrl(options.databaseUrl);
   const listDir = resolveListDir(options.listDir);
-  const driver = await createDriver(url);
 
-  try {
+  return runWithDriver(options, async (driver) => {
     await driver.install();
 
     const allFiles = await listFiles(listDir, "js");
-    const checksums = new Map<string, string>();
-    for (const file of allFiles) {
-      checksums.set(file, await checksumFile(path.join(listDir, file)));
-    }
+    const checksumEntries = await Promise.all(
+      allFiles.map(async (file) => [file, await checksumFile(path.join(listDir, file))] as const),
+    );
+    const checksums = new Map(checksumEntries);
 
     const executed = await driver.listExecuted();
     const executedByName = new Map(executed.map((entry) => [entry.name, entry]));
@@ -68,7 +65,5 @@ export async function migrateUp(options: MigrateOptions = {}): Promise<MigrateUp
     }
 
     return { applied };
-  } finally {
-    await driver.close();
-  }
+  });
 }

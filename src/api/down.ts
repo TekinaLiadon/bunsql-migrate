@@ -1,16 +1,13 @@
 import path from "node:path";
-import { getDatabaseUrl } from "../core/env.js";
-import { createDriver } from "../core/driver.js";
 import { resolveListDir } from "../core/fs.js";
 import { log } from "../core/console.js";
 import type { MigrateDownResult, MigrateOptions } from "./options.js";
+import { runWithDriver } from "./run-with-driver.js";
 
 export async function migrateDown(options: MigrateOptions = {}): Promise<MigrateDownResult> {
-  const url = getDatabaseUrl(options.databaseUrl);
   const listDir = resolveListDir(options.listDir);
-  const driver = await createDriver(url);
 
-  try {
+  return runWithDriver(options, async (driver) => {
     const executed = await driver.listExecuted();
     if (executed.length === 0) {
       log({ text: "No migrations to rollback.", type: "warn" });
@@ -31,7 +28,5 @@ export async function migrateDown(options: MigrateOptions = {}): Promise<Migrate
     await driver.remove(file);
     log({ text: `${file} rolled back`, type: "success" });
     return { reverted: file };
-  } finally {
-    await driver.close();
-  }
+  });
 }

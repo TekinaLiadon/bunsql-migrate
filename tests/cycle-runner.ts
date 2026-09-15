@@ -60,7 +60,7 @@ try {
     throw new Error(`second up applied: ${JSON.stringify(again.applied)}`);
   }
 
-  writeFileSync(path.join(listDir, fileA), migrationFile(tableA) + "\n// tampered\n");
+  writeFileSync(path.join(listDir, fileA), `${migrationFile(tableA)}\n// tampered\n`);
   try {
     await migrateUp(options);
     throw new Error("expected ChecksumDriftError after tampering");
