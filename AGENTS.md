@@ -22,7 +22,7 @@ Release order (`.github/workflows/publish.yml`, triggered only by a `v*` tag pus
 ## Releasing
 
 - Bump `version` in `package.json`, tag `v<version>` and push the tag — `publish.yml` runs the full check sequence and publishes. Never publish from a non-tag ref or by hand; the tag is the only publish trigger.
-- Publish path is **`npm publish --provenance`**, not `bun publish`: Bun 1.4.2 has no `--provenance` flag, and the TS-tarball needs nothing from npm (packing honors `files`, there are no lifecycle scripts). Revisit if Bun grows `--provenance`.
+- Publish path is **`npm publish --provenance --access public`**, not `bun publish`: Bun 1.4.2 has no `--provenance` flag, provenance for a new package requires explicit `--access public`, and the TS-tarball needs nothing from npm (packing honors `files`, there are no lifecycle scripts). The `bin` target must be written **without the `./` prefix** (`"src/cli/main.ts"`): npm's manifest normalization strips `bin` values starting with `./` (it prints `was invalid and removed` and drops the entry — `bunx` would break). `tests/pack-smoke.test.ts` asserts this via `npm publish --dry-run`. Revisit if Bun grows `--provenance`.
 - Prerequisites: `NPM_TOKEN` repository secret (wired as `NODE_AUTH_TOKEN` through `actions/setup-node`) and `id-token: write` in the workflow (already set). Trusted publishing / provenance on npmjs.com is a package-owner setup task — verify the provenance badge on the package page at the first release.
 - The pack smoke test (`tests/pack-smoke.test.ts`) is the last gate before publishing: it packs the tarball, installs it into a clean temp project and exercises CLI, API and types as a consumer.
 

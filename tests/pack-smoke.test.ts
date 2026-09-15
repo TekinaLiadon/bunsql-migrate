@@ -86,6 +86,18 @@ describe("pack smoke test (tarball as a consumer sees it)", () => {
     expect(junk).toEqual([]);
   });
 
+  it("survives npm manifest normalization: bin is kept, no auto-corrections", () => {
+    const dryRun = Bun.spawnSync(["npm", "publish", "--dry-run"], {
+      cwd: repoRoot,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const output = `${dryRun.stdout}\n${dryRun.stderr}`;
+    expect(dryRun.exitCode).toBe(0);
+    expect(output).not.toContain("invalid and removed");
+    expect(output).not.toContain("auto-corrected");
+  });
+
   it("runs the full CLI cycle against sqlite from the installed package", async () => {
     const env = { DATABASE_URL: `sqlite:${path.join(projectDir, "smoke.db")}` };
     const cli = ["bun", "x", "bunsql-migrate"];

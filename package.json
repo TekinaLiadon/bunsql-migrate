@@ -21,7 +21,7 @@
     "url": "git+https://github.com/TekinaLiadon/bunsql-migrate.git"
   },
   "bin": {
-    "bunsql-migrate": "./src/cli/main.ts"
+    "bunsql-migrate": "src/cli/main.ts"
   },
   "files": [
     "src",
