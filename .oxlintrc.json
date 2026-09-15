@@ -1,0 +1,23 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["import"],
+  "categories": {
+    "correctness": "error",
+    "suspicious": "error"
+  },
+  "rules": {
+    "typescript/consistent-type-imports": ["warn", { "prefer": "inline-type-imports" }],
+    "typescript/array-type": "warn",
+    "eslint/prefer-destructuring": "warn",
+    "eslint/no-duplicate-imports": "warn",
+    "eslint/prefer-template": "warn",
+    "eslint/no-promise-executor-return": "warn",
+    "unicorn/prefer-string-replace-all": "warn",
+    "unicorn/no-array-callback-reference": "warn",
+    "unicorn/no-useless-undefined": "warn",
+    "unicorn/catch-error-name": "warn",
+    "import/no-named-as-default": "warn",
+    "import/no-named-as-default-member": "warn"
+  },
+  "ignorePatterns": ["node_modules/"]
+}

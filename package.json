@@ -1,0 +1,57 @@
+{
+  "name": "bunsql-migrate",
+  "version": "0.1.0",
+  "description": "Zero-ORM SQL file migrations for Bun: PostgreSQL, MySQL/MariaDB and SQLite through the built-in Bun.SQL client",
+  "keywords": [
+    "bun",
+    "cli",
+    "mariadb",
+    "migrations",
+    "mysql",
+    "postgres",
+    "sql",
+    "sqlite"
+  ],
+  "homepage": "https://github.com/TekinaLiadon/bunsql-migrate#readme",
+  "bugs": "https://github.com/TekinaLiadon/bunsql-migrate/issues",
+  "license": "MIT",
+  "author": "Tekina",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TekinaLiadon/bunsql-migrate.git"
+  },
+  "bin": {
+    "bunsql-migrate": "./src/cli/main.ts"
+  },
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsgo --noEmit",
+    "lint": "oxlint",
+    "fmt": "oxfmt",
+    "fmt:check": "oxfmt --check"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.2",
+    "@typescript/native-preview": "^7.0.0-dev.20260707.2",
+    "bun-types": "1.4.2",
+    "oxfmt": "^0.46.0",
+    "oxlint": "^1.80.0",
+    "typescript": "^6.0.3"
+  },
+  "engines": {
+    "bun": ">=1.4.2"
+  }
+}

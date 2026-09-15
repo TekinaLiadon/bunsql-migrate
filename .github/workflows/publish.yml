@@ -1,0 +1,70 @@
+name: Publish
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # npm provenance (OIDC)
+    services:
+      postgres:
+        image: postgres:14
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      mariadb:
+        image: mariadb:11
+        env:
+          MARIADB_ROOT_PASSWORD: mariadb
+          MARIADB_DATABASE: mariadb
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mariadb-admin ping -h localhost"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - run: bun run lint
+      - run: bun run typecheck
+      - run: bun test
+      - name: MariaDB integration tests
+        run: bun test tests/driver-mariadb.test.ts tests/cycle-integration.test.ts
+        env:
+          DATABASE_URL: mariadb://root:mariadb@localhost:3306/mariadb
+      - name: Package smoke test (tarball in a clean project)
+        run: bun test tests/pack-smoke.test.ts
+      - name: Check the tag matches package.json version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          version=$(bun -e 'console.log(JSON.parse(require("node:fs").readFileSync("package.json", "utf8")).version)')
+          if [ "$tag" != "$version" ]; then
+            echo "Tag v$tag does not match package.json version $version"
+            exit 1
+          fi
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - run: npm publish --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

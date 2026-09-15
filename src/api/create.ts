@@ -1,0 +1,95 @@
+import path from "node:path";
+import { mkdir, open, type FileHandle } from "node:fs/promises";
+import { randomName } from "../core/random-name.js";
+import { resolveListDir } from "../core/fs.js";
+import { log } from "../core/console.js";
+import { GitStageError } from "./options.js";
+
+export interface CreateOptions {
+  name?: string;
+  git?: boolean;
+  listDir: string;
+}
+
+const STUB_TEMPLATE = `import { sql } from "bun";
+// Write your migration SQL here
+const up = async () => {};
+
+// Write your rollback SQL here
+const down = async () => {};
+
+export { up, down };
+`;
+
+async function stageInGit(filePath: string): Promise<void> {
+  const add = Bun.spawn({
+    cmd: ["git", "add", filePath],
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const stderr = await new Response(add.stderr).text();
+  const exitCode = await add.exited;
+  if (exitCode !== 0) {
+    throw new GitStageError(filePath, exitCode, stderr.trim());
+  }
+}
+
+function migrationFilename(name: string, date: Date): string {
+  const pad = (value: number) => (value <= 9 ? `0${value}` : `${value}`);
+  const MAX_TIME = 9999999999999;
+  const invertedTime = (MAX_TIME - date.getTime()).toString().padStart(13, "0");
+  const timestamp = [
+    invertedTime,
+    date.getUTCFullYear(),
+    pad(date.getUTCMonth() + 1),
+    pad(date.getUTCDate()),
+  ].join("_");
+  return `${timestamp}_${name}.js`;
+}
+
+async function writeStubExclusively(filePath: string): Promise<boolean> {
+  let handle: FileHandle;
+  try {
+    handle = await open(filePath, "wx");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+      return false;
+    }
+    throw error;
+  }
+  try {
+    await handle.writeFile(STUB_TEMPLATE);
+  } finally {
+    await handle.close();
+  }
+  return true;
+}
+
+export async function createMigration(options: CreateOptions): Promise<string> {
+  const name = options.name ?? randomName();
+  await mkdir(options.listDir, { recursive: true });
+  let filename = migrationFilename(name, new Date());
+  let filePath = path.join(options.listDir, filename);
+  while (!(await writeStubExclusively(filePath))) {
+    await Bun.sleep(1);
+    filename = migrationFilename(name, new Date());
+    filePath = path.join(options.listDir, filename);
+  }
+
+  if (options.git) {
+    await stageInGit(filePath);
+  }
+
+  return filename;
+}
+
+export async function createMigrationCommand(
+  options: Omit<CreateOptions, "listDir"> & { listDir?: string },
+): Promise<string> {
+  const filename = await createMigration({ ...options, listDir: resolveListDir(options.listDir) });
+  log({ text: `Migration created: ${filename}`, type: "success" });
+  if (options.git) {
+    log({ text: `Staged in git: ${filename}`, type: "success" });
+  }
+  return filename;
+}
