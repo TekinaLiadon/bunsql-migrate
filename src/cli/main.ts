@@ -36,7 +36,7 @@ function parseArgs(argv: string[]): CliArgs {
 
 function usage(exitCode: number): never {
   log({
-    text: "Usage: bunsql-migrate <up|down|install|create [name]> [--dir <migrations-dir>] [--git] [--help]",
+    text: "Usage: bunsql-native-migrate <up|down|install|create [name]> [--dir <migrations-dir>] [--git] [--help]",
     type: "info",
   });
   process.exit(exitCode);

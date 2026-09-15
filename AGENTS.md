@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Zero-ORM SQL file migrations for Bun: PostgreSQL, MySQL/MariaDB and SQLite through the built-in `Bun.SQL` client. Published library (CLI `bunx bunsql-migrate` + programmatic API from `src/index.ts`) — **zero runtime dependencies**, Node.js is not supported.
+Zero-ORM SQL file migrations for Bun: PostgreSQL, MySQL/MariaDB and SQLite through the built-in `Bun.SQL` client. Published library (CLI `bunx bunsql-native-migrate` + programmatic API from `src/index.ts`) — **zero runtime dependencies**, Node.js is not supported.
 
 **Publishing**: TS sources ship as-is — no build step, no `dist/` (Bun runs TS natively). The npm tarball is `src/` + README + LICENSE (`files` in package.json); `exports` has a `types` condition first.
 

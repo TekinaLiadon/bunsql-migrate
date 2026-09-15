@@ -98,21 +98,21 @@ describe("bunsql-migrate CLI", () => {
     const { env } = makeScenario();
     const help = await runCli(["--help"], env);
     expect(help.exitCode).toBe(0);
-    expect(help.output).toContain("Usage: bunsql-migrate");
+    expect(help.output).toContain("Usage: bunsql-native-migrate");
   });
 
   it("prints usage and exits 0 for -h", async () => {
     const { env } = makeScenario();
     const help = await runCli(["-h"], env);
     expect(help.exitCode).toBe(0);
-    expect(help.output).toContain("Usage: bunsql-migrate");
+    expect(help.output).toContain("Usage: bunsql-native-migrate");
   });
 
   it("exits with code 1 and prints usage on an unknown command", async () => {
     const { env } = makeScenario();
     const unknown = await runCli(["frobnicate"], env);
     expect(unknown.exitCode).toBe(1);
-    expect(unknown.output).toContain("Usage: bunsql-migrate");
+    expect(unknown.output).toContain("Usage: bunsql-native-migrate");
   });
 
   it("stops at the first failing migration and exits with code 1", async () => {

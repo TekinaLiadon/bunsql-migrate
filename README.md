@@ -1,7 +1,7 @@
-# bunsql-migrate
+# bunsql-native-migrate
 
 [![CI](https://github.com/TekinaLiadon/bunsql-migrate/actions/workflows/ci.yml/badge.svg)](https://github.com/TekinaLiadon/bunsql-migrate/actions/workflows/ci.yml)
-[![npm version](https://img.shields.io/npm/v/bunsql-migrate.svg)](https://www.npmjs.com/package/bunsql-migrate)
+[![npm version](https://img.shields.io/npm/v/bunsql-native-migrate.svg)](https://www.npmjs.com/package/bunsql-native-migrate)
 
 Zero-ORM SQL file migrations for [Bun](https://bun.sh): PostgreSQL, MySQL/MariaDB and SQLite through the built-in `Bun.SQL` client.
 
@@ -14,12 +14,12 @@ No ORM, no schema diffing, no lock-in — you write plain `.js` migration files 
 - **Zero dependencies**.
 - **Checksums** — every applied migration is checksummed (SHA-256). A modified applied file fails the run instead of silently drifting.
 - **Legacy backfill** — records without a checksum are backfilled automatically on the next `up`.
-- **CLI and library** — use it as `bunx bunsql-migrate` or import the functions directly.
+- **CLI and library** — use it as `bunx bunsql-native-migrate` or import the functions directly.
 
 ## Installation
 
 ```bash
-bun add bunsql-migrate
+bun add bunsql-native-migrate
 ```
 
 Requires Bun ≥ 1.4.2 — the version this package is developed and tested against. (The unified `Bun.SQL` client it is built on exists since Bun 1.2.21, when MySQL/MariaDB and SQLite support were added.)
@@ -28,16 +28,16 @@ Requires Bun ≥ 1.4.2 — the version this package is developed and tested agai
 
 ```bash
 # create migrations/<timestamp>_<name>.js from the stub template
-bunx bunsql-migrate create add_users_table
+bunx bunsql-native-migrate create add_users_table
 
 # create the tracking table (optional — up() does it automatically)
-bunx bunsql-migrate install
+bunx bunsql-native-migrate install
 
 # apply pending migrations
-bunx bunsql-migrate up
+bunx bunsql-native-migrate up
 
 # roll back the last applied migration
-bunx bunsql-migrate down
+bunx bunsql-native-migrate down
 ```
 
 The CLI reads `DATABASE_URL` from the environment (or a `.env` file — Bun loads it automatically).
@@ -58,7 +58,7 @@ const down = async () => {
 export { up, down };
 ```
 
-Files live in the migrations directory (default `./migrations`, override with `--dir` or the `MIGRATION_LIST_DIR` env var) and are applied in descending filename order. `bunsql-migrate create` generates names with an inverted timestamp prefix so newer migrations sort first:
+Files live in the migrations directory (default `./migrations`, override with `--dir` or the `MIGRATION_LIST_DIR` env var) and are applied in descending filename order. `bunsql-native-migrate create` generates names with an inverted timestamp prefix so newer migrations sort first:
 
 ```
 9999999999999_2026_09_13_add_users_table.js
@@ -71,7 +71,7 @@ Relative paths — whether from `--dir`, the `listDir` option or `MIGRATION_LIST
 Absolute paths are passed through unchanged, which is the safe choice for CI/CD and other automation where the working directory is not guaranteed to be the repository root:
 
 ```bash
-DATABASE_URL=$SECRET_URL bunx bunsql-migrate up --dir "$CI_WORKSPACE/migrations"
+DATABASE_URL=$SECRET_URL bunx bunsql-native-migrate up --dir "$CI_WORKSPACE/migrations"
 ```
 
 This resolution is part of the library contract: `resolveListDir` (and therefore every API function) always returns a fully qualified absolute path, so programmatic callers can pass either form and get identical behavior from any working directory.
@@ -79,7 +79,7 @@ This resolution is part of the library contract: `resolveListDir` (and therefore
 ## CLI reference
 
 ```
-bunsql-migrate <up|down|install|create [name]> [--dir <migrations-dir>] [--git] [--help]
+bunsql-native-migrate <up|down|install|create [name]> [--dir <migrations-dir>] [--git] [--help]
 ```
 
 | Command         | What it does                                                                                                                        |
@@ -108,7 +108,7 @@ import {
   createDriver,
   ChecksumDriftError,
   GitStageError,
-} from "bunsql-migrate";
+} from "bunsql-native-migrate";
 
 const { applied } = await migrateUp({
   databaseUrl: "postgres://user:pass@localhost:5432/app", // default: DATABASE_URL env

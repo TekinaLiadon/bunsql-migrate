@@ -20,7 +20,7 @@ beforeAll(async () => {
   if (packed.exitCode !== 0) {
     throw new Error(`bun pm pack failed: ${packed.stderr.toString()}`);
   }
-  const repoTgz = path.join(repoRoot, `bunsql-migrate-${pkg.version}.tgz`);
+  const repoTgz = path.join(repoRoot, `${pkg.name}-${pkg.version}.tgz`);
   tgzPath = path.join(workDir, path.basename(repoTgz));
   renameSync(repoTgz, tgzPath);
 
@@ -34,7 +34,7 @@ beforeAll(async () => {
 
 afterAll(() => {
   rmSync(workDir, { recursive: true, force: true });
-  for (const leftover of new Bun.Glob("bunsql-migrate-*.tgz").scanSync({ cwd: repoRoot })) {
+  for (const leftover of new Bun.Glob("bunsql-native-migrate-*.tgz").scanSync({ cwd: repoRoot })) {
     rmSync(path.join(repoRoot, leftover), { force: true });
   }
 });
@@ -100,11 +100,11 @@ describe("pack smoke test (tarball as a consumer sees it)", () => {
 
   it("runs the full CLI cycle against sqlite from the installed package", async () => {
     const env = { DATABASE_URL: `sqlite:${path.join(projectDir, "smoke.db")}` };
-    const cli = ["bun", "x", "bunsql-migrate"];
+    const cli = ["bun", "x", "bunsql-native-migrate"];
 
     const help = await run([...cli, "--help"], { cwd: projectDir, env });
     expect(help.exitCode).toBe(0);
-    expect(help.output).toContain("Usage: bunsql-migrate");
+    expect(help.output).toContain("Usage: bunsql-native-migrate");
 
     const created = await run([...cli, "create", "smoke_migration", "--dir", "list"], {
       cwd: projectDir,
@@ -146,7 +146,7 @@ describe("pack smoke test (tarball as a consumer sees it)", () => {
   createDriver,
   ChecksumDriftError,
   GitStageError,
-} from "bunsql-migrate";
+} from "bunsql-native-migrate";
 
 await installMigrations({ listDir: "./api-list" });
 const filename = await createMigration({ name: "api_probe", listDir: "./api-list" });
@@ -177,7 +177,7 @@ console.log("API-SMOKE-OK", executed.length);
   it("resolves the published types (exports.types) with tsgo — and fails on a missing export", async () => {
     writeFileSync(
       path.join(projectDir, "types-probe.ts"),
-      `import { type MigrateUpResult, migrateUp } from "bunsql-migrate";
+      `import { type MigrateUpResult, migrateUp } from "bunsql-native-migrate";
 
 const result: MigrateUpResult = await migrateUp({ databaseUrl: "sqlite:./types-probe.db" });
 const applied: string[] = result.applied;
@@ -211,7 +211,7 @@ console.log(applied.length);
 
     writeFileSync(
       path.join(projectDir, "broken-import.ts"),
-      `import { DoesNotExist } from "bunsql-migrate";\nconsole.log(DoesNotExist);\n`,
+      `import { DoesNotExist } from "bunsql-native-migrate";\nconsole.log(DoesNotExist);\n`,
     );
     writeFileSync(
       path.join(projectDir, "tsconfig.broken.json"),
