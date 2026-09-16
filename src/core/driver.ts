@@ -12,6 +12,8 @@ export interface MigrationDriver {
   setChecksum(migration: string, checksum: string): Promise<void>;
   remove(migration: string): Promise<void>;
   transaction<T>(run: (tx: SQL) => Promise<T>): Promise<T>;
+  tryLock?(timeoutSeconds: number): Promise<boolean>;
+  releaseLock?(): Promise<void>;
   close(): Promise<void>;
 }
 

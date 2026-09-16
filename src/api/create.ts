@@ -5,13 +5,16 @@ import { resolveListDir } from "../core/fs.js";
 import { log } from "../core/console.js";
 import { GitStageError } from "./options.js";
 
+export type MigrationLang = "js" | "ts";
+
 export interface CreateOptions {
   name?: string;
   git?: boolean;
+  lang?: MigrationLang;
   listDir: string;
 }
 
-const STUB_TEMPLATE = `import { sql } from "bun";
+const JS_TEMPLATE = `import { sql } from "bun";
 // Write your migration SQL here (tx runs inside a transaction)
 const up = async (tx) => {};
 
@@ -20,6 +23,20 @@ const down = async (tx) => {};
 
 export { up, down };
 `;
+
+const TS_TEMPLATE = `import { sql, type SQL } from "bun";
+// Write your migration SQL here (tx runs inside a transaction)
+const up = async (tx: SQL) => {};
+
+// Write your rollback SQL here
+const down = async (tx: SQL) => {};
+
+export { up, down };
+`;
+
+function stubTemplate(lang: MigrationLang): string {
+  return lang === "js" ? JS_TEMPLATE : TS_TEMPLATE;
+}
 
 async function stageInGit(filePath: string): Promise<void> {
   const add = Bun.spawn({
@@ -34,7 +51,7 @@ async function stageInGit(filePath: string): Promise<void> {
   }
 }
 
-function migrationFilename(name: string, date: Date): string {
+function migrationFilename(name: string, date: Date, lang: MigrationLang): string {
   const pad = (value: number) => (value <= 9 ? `0${value}` : `${value}`);
   const MAX_TIME = 9999999999999;
   const invertedTime = (MAX_TIME - date.getTime()).toString().padStart(13, "0");
@@ -44,10 +61,10 @@ function migrationFilename(name: string, date: Date): string {
     pad(date.getUTCMonth() + 1),
     pad(date.getUTCDate()),
   ].join("_");
-  return `${timestamp}_${name}.js`;
+  return `${timestamp}_${name}.${lang}`;
 }
 
-async function writeStubExclusively(filePath: string): Promise<boolean> {
+async function writeStubExclusively(filePath: string, template: string): Promise<boolean> {
   let handle: FileHandle;
   try {
     handle = await open(filePath, "wx");
@@ -58,7 +75,7 @@ async function writeStubExclusively(filePath: string): Promise<boolean> {
     throw error;
   }
   try {
-    await handle.writeFile(STUB_TEMPLATE);
+    await handle.writeFile(template);
   } finally {
     await handle.close();
   }
@@ -67,12 +84,13 @@ async function writeStubExclusively(filePath: string): Promise<boolean> {
 
 export async function createMigration(options: CreateOptions): Promise<string> {
   const name = options.name ?? randomName();
+  const lang = options.lang ?? "ts";
   await mkdir(options.listDir, { recursive: true });
-  let filename = migrationFilename(name, new Date());
+  let filename = migrationFilename(name, new Date(), lang);
   let filePath = path.join(options.listDir, filename);
-  while (!(await writeStubExclusively(filePath))) {
+  while (!(await writeStubExclusively(filePath, stubTemplate(lang)))) {
     await Bun.sleep(1);
-    filename = migrationFilename(name, new Date());
+    filename = migrationFilename(name, new Date(), lang);
     filePath = path.join(options.listDir, filename);
   }
 

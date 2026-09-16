@@ -23,3 +23,23 @@ describe.skipIf(!isRealDatabase)("full migration cycle against a real database",
     expect(output).toContain("CYCLE-OK");
   }, 120000);
 });
+
+describe.skipIf(!isRealDatabase)("concurrent up runs against a real database", () => {
+  it("serializes racing runs on the advisory lock and fast-fails on request", async () => {
+    const runner = path.resolve(import.meta.dir, "lock-runner.ts");
+    const proc = Bun.spawn(["bun", runner], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [exitCode, stdout, stderr] = await Promise.all([
+      proc.exited,
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+    ]);
+    const output = `${stdout}\n${stderr}`;
+    if (exitCode !== 0) {
+      throw new Error(`lock runner failed (exit ${exitCode}):\n${output}`);
+    }
+    expect(output).toContain("LOCK-OK");
+  }, 60000);
+});

@@ -3,11 +3,13 @@ import path from "node:path";
 
 export const DEFAULT_MIGRATIONS_DIR = "migrations";
 
-export async function listFiles(dir: string, ext: string): Promise<string[]> {
+export const MIGRATION_EXTENSIONS = ["js", "ts"] as const;
+
+export async function listFiles(dir: string, extensions: readonly string[]): Promise<string[]> {
   const matchedFiles: string[] = [];
   const entries = await readdir(dir, { withFileTypes: true });
   for (const entry of entries) {
-    if (entry.isFile() && entry.name.endsWith(`.${ext}`)) {
+    if (entry.isFile() && extensions.some((ext) => entry.name.endsWith(`.${ext}`))) {
       matchedFiles.push(entry.name);
     }
   }

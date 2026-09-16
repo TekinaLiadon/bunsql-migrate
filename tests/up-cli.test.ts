@@ -145,7 +145,7 @@ describe("bunsql-migrate CLI", () => {
   it("applies all migrations and exits with code 0", async () => {
     const { dbPath, listDir, env } = makeScenario();
     try {
-      writeMigration(listDir, "2_second.js", "await sql`CREATE TABLE second_table (id INTEGER)`;");
+      writeMigration(listDir, "2_second.ts", "await sql`CREATE TABLE second_table (id INTEGER)`;");
       writeMigration(listDir, "1_first.js", "await sql`CREATE TABLE first_table (id INTEGER)`;");
 
       expect((await runCli(["install"], env)).exitCode).toBe(0);
@@ -154,9 +154,52 @@ describe("bunsql-migrate CLI", () => {
       const tables = readTables(dbPath);
       expect(tables).toContain("first_table");
       expect(tables).toContain("second_table");
-      expect(readRecorded(dbPath)).toEqual(["2_second.js", "1_first.js"]);
+      expect(readRecorded(dbPath)).toEqual(["2_second.ts", "1_first.js"]);
     } finally {
       rmSync(path.dirname(dbPath), { recursive: true, force: true });
+    }
+  });
+
+  it("status lists applied and pending migrations and exits 0", async () => {
+    const { listDir, env } = makeScenario();
+    try {
+      writeMigration(listDir, "2_second.js", "await sql`CREATE TABLE second_table (id INTEGER)`;");
+      writeMigration(listDir, "1_first.ts", "await sql`CREATE TABLE first_table (id INTEGER)`;");
+
+      const before = await runCli(["status"], env);
+      expect(before.exitCode).toBe(0);
+      expect(before.output).toContain("2_second.js pending");
+      expect(before.output).toContain("1_first.ts pending");
+      expect(before.output).toContain("0 applied, 2 pending");
+
+      expect((await runCli(["up"], env)).exitCode).toBe(0);
+
+      const after = await runCli(["status"], env);
+      expect(after.exitCode).toBe(0);
+      expect(after.output).toContain("2_second.js applied");
+      expect(after.output).toContain("1_first.ts applied");
+      expect(after.output).toContain("2 applied, 0 pending");
+    } finally {
+      rmSync(path.dirname(listDir), { recursive: true, force: true });
+    }
+  });
+
+  it("status --strict exits 1 while migrations are pending and 0 after up", async () => {
+    const { listDir, env } = makeScenario();
+    try {
+      writeMigration(listDir, "1_only.js", "await sql`CREATE TABLE only_table (id INTEGER)`;");
+
+      const pending = await runCli(["status", "--strict"], env);
+      expect(pending.exitCode).toBe(1);
+      expect(pending.output).toContain("Strict mode: 1 pending migration(s).");
+
+      expect((await runCli(["up"], env)).exitCode).toBe(0);
+
+      const clean = await runCli(["status", "--strict"], env);
+      expect(clean.exitCode).toBe(0);
+      expect(clean.output).not.toContain("Strict mode:");
+    } finally {
+      rmSync(path.dirname(listDir), { recursive: true, force: true });
     }
   });
 
@@ -278,9 +321,119 @@ describe("bunsql-migrate CLI", () => {
       expect(created.exitCode).toBe(0);
       expect(created.output).toContain("Migration created:");
 
-      const files = await Array.fromAsync(new Bun.Glob("*.js").scan({ cwd: listDir }));
+      const files = await Array.fromAsync(new Bun.Glob("*.ts").scan({ cwd: listDir }));
       expect(files).toHaveLength(1);
-      expect(files[0]).toContain("custom_name.js");
+      expect(files[0]).toContain("custom_name.ts");
+    } finally {
+      rmSync(path.dirname(listDir), { recursive: true, force: true });
+    }
+  });
+
+  it("create --lang js generates a .js stub that applies", async () => {
+    const { dbPath, listDir, env } = makeScenario();
+    try {
+      const created = await runCli(["create", "js_cli", "--lang", "js"], env);
+      expect(created.exitCode).toBe(0);
+      expect(created.output).toContain(".js");
+
+      expect((await runCli(["up"], env)).exitCode).toBe(0);
+      expect(readRecorded(dbPath)[0]).toContain("js_cli.js");
+    } finally {
+      rmSync(path.dirname(listDir), { recursive: true, force: true });
+    }
+  });
+
+  it("create rejects an unknown or missing --lang value", async () => {
+    const { listDir, env } = makeScenario();
+    try {
+      const unknown = await runCli(["create", "x", "--lang", "py"], env);
+      expect(unknown.exitCode).toBe(1);
+      expect(unknown.output).toContain("Unknown --lang value: py");
+
+      const missing = await runCli(["create", "x", "--lang"], env);
+      expect(missing.exitCode).toBe(1);
+      expect(missing.output).toContain("expected js or ts");
+    } finally {
+      rmSync(path.dirname(listDir), { recursive: true, force: true });
+    }
+  });
+
+  it("down <n> rolls back N migrations", async () => {
+    const { dbPath, listDir, env } = makeScenario();
+    try {
+      writeMigration(listDir, "3_c.js", "await sql`CREATE TABLE c_table (id INTEGER)`;");
+      writeMigration(listDir, "2_b.js", "await sql`CREATE TABLE b_table (id INTEGER)`;");
+      writeMigration(listDir, "1_a.js", "await sql`CREATE TABLE a_table (id INTEGER)`;");
+      expect((await runCli(["up"], env)).exitCode).toBe(0);
+
+      const down = await runCli(["down", "2"], env);
+      expect(down.exitCode).toBe(0);
+      expect(down.output).toContain("Reverted 2 migration(s).");
+      expect(readRecorded(dbPath)).toEqual(["3_c.js"]);
+    } finally {
+      rmSync(path.dirname(dbPath), { recursive: true, force: true });
+    }
+  });
+
+  it("down --all rolls back everything", async () => {
+    const { dbPath, listDir, env } = makeScenario();
+    try {
+      writeMigration(listDir, "2_b.js", "await sql`CREATE TABLE b_table (id INTEGER)`;");
+      writeMigration(listDir, "1_a.js", "await sql`CREATE TABLE a_table (id INTEGER)`;");
+      expect((await runCli(["up"], env)).exitCode).toBe(0);
+
+      const down = await runCli(["down", "--all"], env);
+      expect(down.exitCode).toBe(0);
+      expect(down.output).toContain("Reverted 2 migration(s).");
+      expect(readRecorded(dbPath)).toEqual([]);
+    } finally {
+      rmSync(path.dirname(dbPath), { recursive: true, force: true });
+    }
+  });
+
+  it("down rejects a bad step argument", async () => {
+    const { listDir, env } = makeScenario();
+    try {
+      const notNumber = await runCli(["down", "abc"], env);
+      expect(notNumber.exitCode).toBe(1);
+      expect(notNumber.output).toContain("Invalid step count: abc");
+
+      const zero = await runCli(["down", "0"], env);
+      expect(zero.exitCode).toBe(1);
+      expect(zero.output).toContain("Invalid step count: 0");
+
+      const both = await runCli(["down", "2", "--all"], env);
+      expect(both.exitCode).toBe(1);
+      expect(both.output).toContain("not both");
+    } finally {
+      rmSync(path.dirname(listDir), { recursive: true, force: true });
+    }
+  });
+
+  it("up --to applies pending migrations up to the named one", async () => {
+    const { dbPath, listDir, env } = makeScenario();
+    try {
+      writeMigration(listDir, "3_c.js", "await sql`CREATE TABLE c_table (id INTEGER)`;");
+      writeMigration(listDir, "2_b.js", "await sql`CREATE TABLE b_table (id INTEGER)`;");
+      writeMigration(listDir, "1_a.js", "await sql`CREATE TABLE a_table (id INTEGER)`;");
+
+      const partial = await runCli(["up", "--to", "2_b.js"], env);
+      expect(partial.exitCode).toBe(0);
+      expect(readRecorded(dbPath)).toEqual(["3_c.js", "2_b.js"]);
+
+      expect((await runCli(["up"], env)).exitCode).toBe(0);
+      expect(readRecorded(dbPath)).toEqual(["3_c.js", "2_b.js", "1_a.js"]);
+    } finally {
+      rmSync(path.dirname(dbPath), { recursive: true, force: true });
+    }
+  });
+
+  it("up --to with an unknown name exits 1", async () => {
+    const { listDir, env } = makeScenario();
+    try {
+      const result = await runCli(["up", "--to", "nope.js"], env);
+      expect(result.exitCode).toBe(1);
+      expect(result.output).toContain("nope.js is not in the migrations directory");
     } finally {
       rmSync(path.dirname(listDir), { recursive: true, force: true });
     }

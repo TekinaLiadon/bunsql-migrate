@@ -22,5 +22,15 @@ export function create(databaseUrl: string): MigrationDriver {
       await db`INSERT OR IGNORE INTO migrations (migration, checksum)
         VALUES (${migration}, ${checksum})`;
     },
+    createLock: (db) => ({
+      async tryLock(timeoutSeconds: number) {
+        await db.unsafe(`PRAGMA busy_timeout = ${timeoutSeconds * 1000}`);
+        return true;
+      },
+      async releaseLock() {
+        await db.unsafe("PRAGMA busy_timeout = 0");
+      },
+      dispose() {},
+    }),
   });
 }

@@ -22,24 +22,38 @@ describe("createMigration()", () => {
       name: "my_migration",
       listDir,
     });
-    expect(filename).toContain("my_migration.js");
+    expect(filename).toContain("my_migration.ts");
 
-    const files = readdirSync(listDir).filter((f) => f.endsWith(".js"));
+    const files = readdirSync(listDir).filter((f) => f.endsWith(".ts"));
     expect(files.length).toBe(1);
     expect(files[0]).toBe(filename);
   });
 
   it("creates a migration with a random name when none is given", async () => {
     const filename = await createMigration({ listDir });
-    expect(filename).toMatch(/\.js$/);
+    expect(filename).toMatch(/\.ts$/);
 
-    const files = readdirSync(listDir).filter((f) => f.endsWith(".js"));
+    const files = readdirSync(listDir).filter((f) => f.endsWith(".ts"));
     expect(files.length).toBe(2);
   });
 
   it("names the file with an inverted 13-digit timestamp and YYYY_MM_DD date", async () => {
     const filename = await createMigration({ name: "timestamp_test", listDir });
-    expect(filename).toMatch(/^\d{13}_\d{4}_\d{2}_\d{2}_timestamp_test\.js$/);
+    expect(filename).toMatch(/^\d{13}_\d{4}_\d{2}_\d{2}_timestamp_test\.ts$/);
+  });
+
+  it('creates a .js migration on request (lang: "js")', async () => {
+    const filename = await createMigration({ name: "js_stab", listDir, lang: "js" });
+    expect(filename).toMatch(/^\d{13}_\d{4}_\d{2}_\d{2}_js_stab\.js$/);
+    const content = await Bun.file(path.join(listDir, filename)).text();
+    expect(content).toContain("async (tx)");
+    expect(content).not.toContain(": SQL");
+  });
+
+  it('creates a .ts migration when lang: "ts" is explicit', async () => {
+    const filename = await createMigration({ name: "ts_explicit", listDir, lang: "ts" });
+    expect(filename).toMatch(/^ts_explicit\.ts$|_ts_explicit\.ts$/);
+    expect(filename).toMatch(/\.ts$/);
   });
 
   it("never collapses concurrent creations with the same name", async () => {
@@ -52,7 +66,7 @@ describe("createMigration()", () => {
       );
       expect(new Set(filenames).size).toBe(8);
 
-      const files = readdirSync(collisionDir).filter((file) => file.endsWith("collision_check.js"));
+      const files = readdirSync(collisionDir).filter((file) => file.endsWith("collision_check.ts"));
       expect(files.length).toBe(8);
     } finally {
       rmSync(collisionDir, { recursive: true, force: true });
@@ -64,6 +78,7 @@ describe("createMigration()", () => {
     const content = await Bun.file(path.join(listDir, filename)).text();
     expect(content).toContain("up");
     expect(content).toContain("down");
+    expect(content).toContain("async (tx: SQL)");
     expect(content).not.toContain("sql``");
   });
 });
@@ -107,12 +122,12 @@ describe("git staging", () => {
       }).catch((err) => err);
 
       expect(error).toBeInstanceOf(GitStageError);
-      expect(error.file).toContain("git_stage_fail.js");
+      expect(error.file).toContain("git_stage_fail.ts");
       expect(error.message).toContain("git add failed");
       expect(error.message).toContain("ignored");
 
       const files = readdirSync(path.join(repoDir, "list"));
-      expect(files.some((file) => file.endsWith("git_stage_fail.js"))).toBe(true);
+      expect(files.some((file) => file.endsWith("git_stage_fail.ts"))).toBe(true);
     } finally {
       process.chdir(originalCwd);
       rmSync(repoDir, { recursive: true, force: true });
@@ -149,7 +164,7 @@ describe("git staging", () => {
 describe("createMigrationCommand()", () => {
   it("creates the migration in the given list dir", async () => {
     const filename = await createMigrationCommand({ name: "cmd_explicit", listDir });
-    expect(filename).toContain("cmd_explicit.js");
+    expect(filename).toContain("cmd_explicit.ts");
     expect(readdirSync(listDir)).toContain(filename);
   });
 
@@ -158,7 +173,7 @@ describe("createMigrationCommand()", () => {
     process.env["MIGRATION_LIST_DIR"] = listDir;
     try {
       const filename = await createMigrationCommand({ name: "cmd_env_dir" });
-      expect(filename).toContain("cmd_env_dir.js");
+      expect(filename).toContain("cmd_env_dir.ts");
       expect(readdirSync(listDir)).toContain(filename);
     } finally {
       if (original === undefined) {

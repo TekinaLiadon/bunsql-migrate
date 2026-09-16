@@ -114,21 +114,49 @@ describe("pack smoke test (tarball as a consumer sees it)", () => {
     expect(created.exitCode).toBe(0);
     expect(created.output).toContain("Migration created:");
 
+    const createdJs = await run([...cli, "create", "smoke_js", "--lang", "js", "--dir", "list"], {
+      cwd: projectDir,
+      env,
+    });
+    expect(createdJs.exitCode).toBe(0);
+    expect(createdJs.output).toContain("Migration created:");
+
+    const strictPending = await run([...cli, "status", "--dir", "list", "--strict"], {
+      cwd: projectDir,
+      env,
+    });
+    expect(strictPending.exitCode).toBe(1);
+    expect(strictPending.output).toContain("Strict mode: 2 pending migration(s).");
+
     expect(
       (await run([...cli, "install", "--dir", "list"], { cwd: projectDir, env })).exitCode,
     ).toBe(0);
 
     const up = await run([...cli, "up", "--dir", "list"], { cwd: projectDir, env });
     expect(up.exitCode).toBe(0);
-    expect(up.output).toContain("Applied 1 migration(s).");
+    expect(up.output).toContain("Applied 2 migration(s).");
 
     const upAgain = await run([...cli, "up", "--dir", "list"], { cwd: projectDir, env });
     expect(upAgain.exitCode).toBe(0);
     expect(upAgain.output).toContain("No pending migrations.");
 
+    const status = await run([...cli, "status", "--dir", "list"], { cwd: projectDir, env });
+    expect(status.exitCode).toBe(0);
+    expect(status.output).toContain("2 applied, 0 pending");
+
+    const strictClean = await run([...cli, "status", "--dir", "list", "--strict"], {
+      cwd: projectDir,
+      env,
+    });
+    expect(strictClean.exitCode).toBe(0);
+
     const down = await run([...cli, "down", "--dir", "list"], { cwd: projectDir, env });
     expect(down.exitCode).toBe(0);
     expect(down.output).toContain("rolled back");
+
+    const down2 = await run([...cli, "down", "--dir", "list"], { cwd: projectDir, env });
+    expect(down2.exitCode).toBe(0);
+    expect(down2.output).toContain("rolled back");
 
     const downAgain = await run([...cli, "down", "--dir", "list"], { cwd: projectDir, env });
     expect(downAgain.exitCode).toBe(0);
@@ -142,6 +170,7 @@ describe("pack smoke test (tarball as a consumer sees it)", () => {
       `import {
   migrateUp,
   migrateDown,
+  migrateStatus,
   installMigrations,
   createMigration,
   createDriver,
@@ -153,6 +182,7 @@ await installMigrations({ listDir: "./api-list" });
 const filename = await createMigration({ name: "api_probe", listDir: "./api-list" });
 const first = await migrateUp({ listDir: "./api-list" });
 const { reverted } = await migrateDown({ listDir: "./api-list" });
+const status = await migrateStatus({ listDir: "./api-list" });
 const driver = await createDriver(process.env.DATABASE_URL!);
 const executed = await driver.listExecuted();
 await driver.close();
@@ -160,8 +190,16 @@ await driver.close();
 if (typeof ChecksumDriftError !== "function" || typeof GitStageError !== "function") {
   throw new Error("error classes missing from the installed package");
 }
-if (first.applied.length !== 1 || typeof reverted !== "string" || !filename.endsWith("api_probe.js")) {
-  throw new Error(\`unexpected API results: \${first.applied.length}, \${reverted}, \${filename}\`);
+if (
+  first.applied.length !== 1 ||
+  !Array.isArray(reverted) ||
+  reverted.length !== 1 ||
+  !filename.endsWith("api_probe.ts") ||
+  status.applied.length !== 0 ||
+  status.pending.length !== 1 ||
+  status.pending[0] !== filename
+) {
+  throw new Error(\`unexpected API results: \${first.applied.length}, \${reverted}, \${filename}, \${JSON.stringify(status)}\`);
 }
 console.log("API-SMOKE-OK", executed.length);
 `,
@@ -178,11 +216,17 @@ console.log("API-SMOKE-OK", executed.length);
   it("resolves the published types (exports.types) with tsgo — and fails on a missing export", async () => {
     writeFileSync(
       path.join(projectDir, "types-probe.ts"),
-      `import { type MigrateUpResult, migrateUp } from "bunsql-native-migrate";
+      `import {
+  type MigrateUpResult,
+  type MigrateStatusResult,
+  migrateUp,
+  migrateStatus,
+} from "bunsql-native-migrate";
 
 const result: MigrateUpResult = await migrateUp({ databaseUrl: "sqlite:./types-probe.db" });
 const applied: string[] = result.applied;
-console.log(applied.length);
+const status: MigrateStatusResult = await migrateStatus({ databaseUrl: "sqlite:./types-probe.db" });
+console.log(applied.length, status.pending.length);
 `,
     );
     writeFileSync(

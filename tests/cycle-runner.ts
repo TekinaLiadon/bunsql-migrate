@@ -2,7 +2,13 @@ import { sql } from "bun";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { ChecksumDriftError, installMigrations, migrateDown, migrateUp } from "../src/index.js";
+import {
+  ChecksumDriftError,
+  installMigrations,
+  migrateDown,
+  migrateStatus,
+  migrateUp,
+} from "../src/index.js";
 
 const url = process.env.DATABASE_URL;
 if (!url) {
@@ -55,14 +61,18 @@ try {
   await installMigrations(options);
   await installMigrations(options);
 
-  const up = await migrateUp(options);
+  const partial = await migrateUp({ ...options, to: fileB });
   if (
-    up.applied.length !== 3 ||
-    up.applied[0] !== fileA ||
-    up.applied[1] !== fileB ||
-    up.applied[2] !== fileC
+    partial.applied.length !== 2 ||
+    partial.applied[0] !== fileA ||
+    partial.applied[1] !== fileB
   ) {
-    throw new Error(`unexpected applied order: ${JSON.stringify(up.applied)}`);
+    throw new Error(`unexpected partial applied order: ${JSON.stringify(partial.applied)}`);
+  }
+
+  const rest = await migrateUp(options);
+  if (rest.applied.length !== 1 || rest.applied[0] !== fileC) {
+    throw new Error(`unexpected remaining applied: ${JSON.stringify(rest.applied)}`);
   }
 
   const rowsA = (await sql.unsafe(`SELECT COUNT(*) AS n FROM ${tableA}`)) as Array<{
@@ -83,6 +93,11 @@ try {
     throw new Error(`second up applied: ${JSON.stringify(again.applied)}`);
   }
 
+  const statusAfterUp = await migrateStatus(options);
+  if (statusAfterUp.applied.length !== 3 || statusAfterUp.pending.length !== 0) {
+    throw new Error(`unexpected status after up: ${JSON.stringify(statusAfterUp)}`);
+  }
+
   writeFileSync(path.join(listDir, fileA), `${migrationFile(tableA)}\n// tampered\n`);
   try {
     await migrateUp(options);
@@ -95,19 +110,21 @@ try {
     writeFileSync(path.join(listDir, fileA), migrationFile(tableA));
   }
 
-  const first = await migrateDown(options);
-  if (first.reverted !== fileC) {
-    throw new Error(`expected down to revert ${fileC}, got ${first.reverted}`);
+  const first = await migrateDown({ ...options, steps: 2 });
+  if (first.reverted.length !== 2 || first.reverted[0] !== fileC || first.reverted[1] !== fileB) {
+    throw new Error(
+      `expected down(steps: 2) to revert [${fileC}, ${fileB}], got ${JSON.stringify(first.reverted)}`,
+    );
   }
 
   const second = await migrateDown(options);
-  if (second.reverted !== fileB) {
-    throw new Error(`expected down to revert ${fileB}, got ${second.reverted}`);
+  if (second.reverted.length !== 1 || second.reverted[0] !== fileA) {
+    throw new Error(`expected down to revert [${fileA}], got ${JSON.stringify(second.reverted)}`);
   }
 
-  const third = await migrateDown(options);
-  if (third.reverted !== fileA) {
-    throw new Error(`expected down to revert ${fileA}, got ${third.reverted}`);
+  const statusAfterDown = await migrateStatus(options);
+  if (statusAfterDown.applied.length !== 0 || statusAfterDown.pending.length !== 3) {
+    throw new Error(`unexpected status after down: ${JSON.stringify(statusAfterDown)}`);
   }
 
   process.stdout.write("CYCLE-OK\n");

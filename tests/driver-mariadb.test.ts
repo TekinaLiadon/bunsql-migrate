@@ -112,4 +112,28 @@ describe("MigrationDriver — MariaDB (integration)", () => {
       await driver.close();
     }
   });
+
+  itWithMariaDb("tryLock/releaseLock provide mutual exclusion between connections", async () => {
+    const first = await createDriver(DATABASE_URL as string);
+    const second = await createDriver(DATABASE_URL as string);
+    try {
+      await first.install();
+      await second.install();
+
+      const { tryLock: lockFirst, releaseLock: unlockFirst } = first;
+      const { tryLock: lockSecond, releaseLock: unlockSecond } = second;
+      if (!lockFirst || !unlockFirst || !lockSecond || !unlockSecond) {
+        throw new Error("mariadb driver must support the lock interface");
+      }
+
+      await expect(lockFirst(1)).resolves.toBe(true);
+      await expect(lockSecond(1)).resolves.toBe(false);
+      await unlockFirst();
+      await expect(lockSecond(1)).resolves.toBe(true);
+      await unlockSecond();
+    } finally {
+      await first.close();
+      await second.close();
+    }
+  });
 });

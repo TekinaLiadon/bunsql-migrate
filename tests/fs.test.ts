@@ -19,18 +19,30 @@ describe("listFiles()", () => {
     writeFileSync(path.join(testDir, "b.js"), "");
     writeFileSync(path.join(testDir, "c.txt"), "");
 
-    const files = await listFiles(testDir, "js");
+    const files = await listFiles(testDir, ["js"]);
     expect(files).toHaveLength(2);
     expect(files).toContain("a.js");
     expect(files).toContain("b.js");
     expect(files).not.toContain("c.txt");
   });
 
+  it("collects .js and .ts in one list sorted by name", async () => {
+    const mixedDir = path.join(testDir, "mixed");
+    mkdirSync(mixedDir, { recursive: true });
+    writeFileSync(path.join(mixedDir, "1_first.js"), "");
+    writeFileSync(path.join(mixedDir, "2_second.ts"), "");
+    writeFileSync(path.join(mixedDir, "3_third.js"), "");
+    writeFileSync(path.join(mixedDir, "notes.txt"), "");
+
+    const files = await listFiles(mixedDir, ["js", "ts"]);
+    expect(files).toEqual(["3_third.js", "2_second.ts", "1_first.js"]);
+  });
+
   it("returns an empty array for an empty directory", async () => {
     const emptyDir = path.join(testDir, "empty");
     mkdirSync(emptyDir, { recursive: true });
 
-    const files = await listFiles(emptyDir, "js");
+    const files = await listFiles(emptyDir, ["js"]);
     expect(files).toHaveLength(0);
   });
 });
