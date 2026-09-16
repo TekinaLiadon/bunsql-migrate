@@ -3,6 +3,7 @@ import { resolveListDir } from "../core/fs.js";
 import { log } from "../core/console.js";
 import type { MigrateDownResult, MigrateOptions } from "./options.js";
 import { runWithDriver } from "./run-with-driver.js";
+import { runMigrationStep } from "./run-step.js";
 
 export async function migrateDown(options: MigrateOptions = {}): Promise<MigrateDownResult> {
   const listDir = resolveListDir(options.listDir);
@@ -24,7 +25,7 @@ export async function migrateDown(options: MigrateOptions = {}): Promise<Migrate
       return { reverted: file };
     }
 
-    await mod.down();
+    await runMigrationStep(driver, mod.down);
     await driver.remove(file);
     log({ text: `${file} rolled back`, type: "success" });
     return { reverted: file };

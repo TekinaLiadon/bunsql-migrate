@@ -1,45 +1,42 @@
-import { SQL } from "bun";
-import type { ExecutedMigration, MigrationDriver } from "../core/driver.js";
+import { type SQL } from "bun";
+import type { MigrationDriver } from "../core/driver.js";
+import { createSqlDriver } from "./shared.js";
+
+async function checksumColumnExists(db: SQL): Promise<boolean> {
+  const rows = await db`SELECT column_name FROM information_schema.columns
+    WHERE table_schema = DATABASE()
+      AND table_name = 'migrations'
+      AND column_name = 'checksum'`;
+  return rows.length > 0;
+}
+
+async function uniqueIndexExists(db: SQL): Promise<boolean> {
+  const rows = await db`SELECT index_name FROM information_schema.statistics
+    WHERE table_schema = DATABASE()
+      AND table_name = 'migrations'
+      AND index_name = 'migrations_migration_unique'`;
+  return rows.length > 0;
+}
 
 export function create(databaseUrl: string): MigrationDriver {
-  const db = new SQL(databaseUrl);
-
-  return {
-    async install() {
+  return createSqlDriver(databaseUrl, {
+    async install(db) {
       await db`CREATE TABLE IF NOT EXISTS migrations (
         id INTEGER PRIMARY KEY AUTO_INCREMENT,
         migration VARCHAR(255) NOT NULL,
-        checksum VARCHAR(64)
+        checksum VARCHAR(64),
+        CONSTRAINT migrations_migration_unique UNIQUE (migration)
       )`;
-      await db`ALTER TABLE migrations ADD COLUMN IF NOT EXISTS checksum VARCHAR(64)`;
-      await db`CREATE UNIQUE INDEX IF NOT EXISTS migrations_migration_unique ON migrations (migration)`;
+      if (!(await checksumColumnExists(db))) {
+        await db`ALTER TABLE migrations ADD COLUMN checksum VARCHAR(64)`;
+      }
+      if (!(await uniqueIndexExists(db))) {
+        await db`CREATE UNIQUE INDEX migrations_migration_unique ON migrations (migration)`;
+      }
     },
-
-    async listExecuted() {
-      const rows = await db`SELECT migration, checksum FROM migrations ORDER BY id ASC`;
-      return rows.map(
-        (r: { migration: string; checksum: string | null }): ExecutedMigration => ({
-          name: r.migration,
-          checksum: r.checksum ?? null,
-        }),
-      );
-    },
-
-    async record(migration: string, checksum: string) {
+    async record(db, migration, checksum) {
       await db`INSERT IGNORE INTO migrations (migration, checksum)
         VALUES (${migration}, ${checksum})`;
     },
-
-    async setChecksum(migration: string, checksum: string) {
-      await db`UPDATE migrations SET checksum = ${checksum} WHERE migration = ${migration}`;
-    },
-
-    async remove(migration: string) {
-      await db`DELETE FROM migrations WHERE migration = ${migration}`;
-    },
-
-    async close() {
-      db.close({ timeout: 0 });
-    },
-  };
+  });
 }

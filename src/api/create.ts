@@ -12,11 +12,11 @@ export interface CreateOptions {
 }
 
 const STUB_TEMPLATE = `import { sql } from "bun";
-// Write your migration SQL here
-const up = async () => {};
+// Write your migration SQL here (tx runs inside a transaction)
+const up = async (tx) => {};
 
 // Write your rollback SQL here
-const down = async () => {};
+const down = async (tx) => {};
 
 export { up, down };
 `;

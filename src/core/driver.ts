@@ -1,3 +1,5 @@
+import { type SQL } from "bun";
+
 export interface ExecutedMigration {
   name: string;
   checksum: string | null;
@@ -9,6 +11,7 @@ export interface MigrationDriver {
   record(migration: string, checksum: string): Promise<void>;
   setChecksum(migration: string, checksum: string): Promise<void>;
   remove(migration: string): Promise<void>;
+  transaction<T>(run: (tx: SQL) => Promise<T>): Promise<T>;
   close(): Promise<void>;
 }
 

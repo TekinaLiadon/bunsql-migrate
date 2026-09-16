@@ -3,6 +3,7 @@ import { checksumFile, listFiles, resolveListDir } from "../core/fs.js";
 import { log } from "../core/console.js";
 import { type MigrateOptions, type MigrateUpResult, ChecksumDriftError } from "./options.js";
 import { runWithDriver } from "./run-with-driver.js";
+import { runMigrationStep } from "./run-step.js";
 
 export async function migrateUp(options: MigrateOptions = {}): Promise<MigrateUpResult> {
   const listDir = resolveListDir(options.listDir);
@@ -11,20 +12,18 @@ export async function migrateUp(options: MigrateOptions = {}): Promise<MigrateUp
     await driver.install();
 
     const allFiles = await listFiles(listDir, "js");
-    const checksumEntries = await Promise.all(
-      allFiles.map(async (file) => [file, await checksumFile(path.join(listDir, file))] as const),
+    const checksums = new Map(
+      await Promise.all(
+        allFiles.map(async (file) => [file, await checksumFile(path.join(listDir, file))] as const),
+      ),
     );
-    const checksums = new Map(checksumEntries);
 
     const executed = await driver.listExecuted();
     const executedByName = new Map(executed.map((entry) => [entry.name, entry]));
 
-    for (const file of allFiles) {
+    for (const [file, checksum] of checksums) {
       const record = executedByName.get(file);
       if (!record) continue;
-
-      const checksum = checksums.get(file);
-      if (!checksum) continue;
 
       if (record.checksum === null) {
         await driver.setChecksum(file, checksum);
@@ -54,7 +53,7 @@ export async function migrateUp(options: MigrateOptions = {}): Promise<MigrateUp
           log({ text: `${file} has no up() export, skipping`, type: "warn" });
           continue;
         }
-        await mod.up();
+        await runMigrationStep(driver, mod.up);
         await driver.record(file, checksum);
         applied.push(file);
         log({ text: `${file} migrated up`, type: "success" });

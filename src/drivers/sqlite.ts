@@ -1,11 +1,9 @@
-import { SQL } from "bun";
-import type { ExecutedMigration, MigrationDriver } from "../core/driver.js";
+import type { MigrationDriver } from "../core/driver.js";
+import { createSqlDriver } from "./shared.js";
 
 export function create(databaseUrl: string): MigrationDriver {
-  const db = new SQL(databaseUrl);
-
-  return {
-    async install() {
+  return createSqlDriver(databaseUrl, {
+    async install(db) {
       await db`CREATE TABLE IF NOT EXISTS migrations (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         migration TEXT NOT NULL,
@@ -20,32 +18,9 @@ export function create(databaseUrl: string): MigrationDriver {
       }
       await db`CREATE UNIQUE INDEX IF NOT EXISTS migrations_migration_unique ON migrations (migration)`;
     },
-
-    async listExecuted() {
-      const rows = await db`SELECT migration, checksum FROM migrations ORDER BY id ASC`;
-      return rows.map(
-        (r: { migration: string; checksum: string | null }): ExecutedMigration => ({
-          name: r.migration,
-          checksum: r.checksum ?? null,
-        }),
-      );
-    },
-
-    async record(migration: string, checksum: string) {
+    async record(db, migration, checksum) {
       await db`INSERT OR IGNORE INTO migrations (migration, checksum)
         VALUES (${migration}, ${checksum})`;
     },
-
-    async setChecksum(migration: string, checksum: string) {
-      await db`UPDATE migrations SET checksum = ${checksum} WHERE migration = ${migration}`;
-    },
-
-    async remove(migration: string) {
-      await db`DELETE FROM migrations WHERE migration = ${migration}`;
-    },
-
-    async close() {
-      db.close({ timeout: 0 });
-    },
-  };
+  });
 }

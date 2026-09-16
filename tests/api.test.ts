@@ -47,8 +47,8 @@ export { up, down };
   );
 }
 
-function readTables(): string[] {
-  const db = new Database(dbPath);
+function readTables(file: string = dbPath): string[] {
+  const db = new Database(file);
   try {
     return db
       .query<{ name: string }, []>("SELECT name FROM sqlite_master WHERE type = 'table'")
@@ -59,13 +59,23 @@ function readTables(): string[] {
   }
 }
 
-function readRecorded(): string[] {
-  const db = new Database(dbPath);
+function readRecorded(file: string = dbPath): string[] {
+  const db = new Database(file);
   try {
     return db
       .query<{ migration: string }, []>("SELECT migration FROM migrations ORDER BY id ASC")
       .all()
       .map((row) => row.migration);
+  } finally {
+    db.close();
+  }
+}
+
+function readRowCount(table: string, file: string = dbPath): number {
+  const db = new Database(file);
+  try {
+    const row = db.query<{ n: number }, []>(`SELECT COUNT(*) AS n FROM ${table}`).get();
+    return row?.n ?? 0;
   } finally {
     db.close();
   }
@@ -288,5 +298,111 @@ export { up, down };
 
     const result = await migrateDown(options);
     expect(result.reverted).toBeNull();
+  });
+});
+
+describe("transactional migrations (up(tx) / down(tx))", () => {
+  const originalTxDatabaseUrl = process.env["DATABASE_URL"];
+  let txDir: string;
+  let txDbPath: string;
+  let txListDir: string;
+  let txOptions: { databaseUrl: string; listDir: string };
+
+  beforeAll(() => {
+    txDir = mkdtempSync(path.join(tmpdir(), "bunsql-api-tx-"));
+    txDbPath = path.join(txDir, "migrate.db");
+    txListDir = path.join(txDir, "list");
+    mkdirSync(txListDir, { recursive: true });
+    txOptions = { databaseUrl: `sqlite:${txDbPath}`, listDir: txListDir };
+    process.env["DATABASE_URL"] = txOptions.databaseUrl;
+  });
+
+  afterAll(() => {
+    if (originalTxDatabaseUrl === undefined) {
+      delete process.env["DATABASE_URL"];
+    } else {
+      process.env["DATABASE_URL"] = originalTxDatabaseUrl;
+    }
+    rmSync(txDir, { recursive: true, force: true });
+  });
+
+  it("applies a tx migration inside a transaction and records it", async () => {
+    writeFileSync(
+      path.join(txListDir, "1_tx_apply.js"),
+      `const up = async (tx) => {
+  await tx\`CREATE TABLE tx_apply_table (id INTEGER PRIMARY KEY, name TEXT)\`;
+  await tx\`INSERT INTO tx_apply_table (id, name) VALUES (1, 'one')\`;
+};
+const down = async (tx) => {
+  await tx\`DROP TABLE tx_apply_table\`;
+};
+export { up, down };
+`,
+    );
+
+    const result = await migrateUp(txOptions);
+
+    expect(result.applied).toEqual(["1_tx_apply.js"]);
+    expect(readTables(txDbPath)).toContain("tx_apply_table");
+    expect(readRecorded(txDbPath)).toContain("1_tx_apply.js");
+    expect(readRowCount("tx_apply_table", txDbPath)).toBe(1);
+  });
+
+  it("rolls back a failed tx migration and leaves no tracking record", async () => {
+    const file = path.join(txListDir, "1_tx_rollback.js");
+    writeFileSync(
+      file,
+      `const up = async (tx) => {
+  await tx\`CREATE TABLE tx_rollback_table (id INTEGER PRIMARY KEY, name TEXT)\`;
+  await tx\`INSERT INTO tx_rollback_table (id, name) VALUES (1, 'one')\`;
+  throw new Error("tx-boom");
+};
+const down = async () => {};
+export { up, down };
+`,
+    );
+
+    await expect(migrateUp(txOptions)).rejects.toThrow("tx-boom");
+    expect(readTables(txDbPath)).not.toContain("tx_rollback_table");
+    expect(readRecorded(txDbPath)).not.toContain("1_tx_rollback.js");
+    rmSync(file);
+
+    writeFileSync(
+      path.join(txListDir, "1_tx_retry.js"),
+      `const up = async (tx) => {
+  await tx\`CREATE TABLE tx_rollback_table (id INTEGER PRIMARY KEY, name TEXT)\`;
+  await tx\`INSERT INTO tx_rollback_table (id, name) VALUES (1, 'one')\`;
+};
+const down = async (tx) => {
+  await tx\`DROP TABLE tx_rollback_table\`;
+};
+export { up, down };
+`,
+    );
+
+    const result = await migrateUp(txOptions);
+    expect(result.applied).toEqual(["1_tx_retry.js"]);
+    expect(readRowCount("tx_rollback_table", txDbPath)).toBe(1);
+  });
+
+  it("runs down(tx) inside a transaction", async () => {
+    writeFileSync(
+      path.join(txListDir, "1_tx_down.js"),
+      `const up = async (tx) => {
+  await tx\`CREATE TABLE tx_down_table (id INTEGER PRIMARY KEY)\`;
+};
+const down = async (tx) => {
+  await tx\`DROP TABLE tx_down_table\`;
+};
+export { up, down };
+`,
+    );
+    await migrateUp(txOptions);
+
+    const result = await migrateDown(txOptions);
+
+    expect(result.reverted).toBe("1_tx_down.js");
+    expect(readTables(txDbPath)).not.toContain("tx_down_table");
+    expect(readRecorded(txDbPath)).not.toContain("1_tx_down.js");
   });
 });

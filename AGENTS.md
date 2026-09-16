@@ -53,11 +53,11 @@ All tests must pass in any order — the order of tests within a file and of fil
 
 - Unit tests run on SQLite (`sqlite://:memory:` or a temp file) — they need no env and are always green locally.
 - `tests/driver-sqlite.test.ts` is the full SQLite driver cycle (install/listExecuted/record/setChecksum/remove/close) against file databases in a temp dir, including the legacy-record backfill path (a `NULL` checksum inserted directly, backfilled via `setChecksum`); it needs no env and always runs.
-- `tests/driver-mariadb.test.ts` is the full driver cycle (install/listExecuted/record/setChecksum/remove/close) against a real MariaDB; it is skipped unless `DATABASE_URL` is a `mariadb://`/`mysql://` URL (`it.skipIf`), so CI without MariaDB stays green.
-- `tests/driver-postgres.test.ts` is the full postgres driver cycle (install/listExecuted/record/setChecksum/remove/close, plus the legacy NULL-checksum backfill path); it is skipped unless `DATABASE_URL` is a `postgres://`/`postgresql://` URL (`it.skipIf`). In CI it runs inside the main `bun test` step, which already sets `DATABASE_URL=postgres://…` — no separate workflow step is needed.
-- `tests/cycle-integration.test.ts` is the full migrate cycle (install → up → order → data check → repeated up → checksum drift → down ×2) against a real database; it is skipped unless `DATABASE_URL` is a `postgres://`/`postgresql://`/`mariadb://`/`mysql://` URL. It spawns `tests/cycle-runner.ts` in a fresh process (see Test Independence for why), so it works in the main `bun test` step (postgres) and in the MariaDB step alike. Shared-DB-safe: unique per-run migration/table names, relative assertions.
+- `tests/driver-mariadb.test.ts` is the full driver cycle (install/listExecuted/record/setChecksum/remove/transaction, plus the legacy-table upgrade path) against a real MariaDB or MySQL server; it is skipped unless `DATABASE_URL` is a `mariadb://`/`mysql://` URL (`it.skipIf`), so CI without MariaDB stays green.
+- `tests/driver-postgres.test.ts` is the full postgres driver cycle (install/listExecuted/record/setChecksum/remove/transaction, plus the legacy NULL-checksum backfill path); it is skipped unless `DATABASE_URL` is a `postgres://`/`postgresql://` URL (`it.skipIf`). In CI it runs inside the main `bun test` step, which already sets `DATABASE_URL=postgres://…` — no separate workflow step is needed.
+- `tests/cycle-integration.test.ts` is the full migrate cycle (install → up ×3, one of them transactional `up(tx)` → order → data check → repeated up → checksum drift → down ×3) against a real database; it is skipped unless `DATABASE_URL` is a `postgres://`/`postgresql://`/`mariadb://`/`mysql://` URL. It spawns `tests/cycle-runner.ts` in a fresh process (see Test Independence for why), so it works in the main `bun test` step (postgres) and in the MariaDB step alike. Shared-DB-safe: unique per-run migration/table names, relative assertions.
 - `tests/pack-smoke.test.ts` packs the npm tarball (`bun pm pack`) and consumes it from a clean temp project: tarball contents (only `package.json`/README/LICENSE/`src/`), the full CLI cycle (`--help`, create → install → up → up → down → down) against a SQLite file, the programmatic API from the installed package, and `exports.types` resolution through `tsgo` (positive + deliberately-broken negative). It needs no env and always runs; it spawns subprocesses but never mutates `process.env` (envs are passed per-spawn).
-- Local runbook: `docker compose up -d` starts both databases exactly as CI configures them (postgres:14 and mariadb:11, see `compose.yaml`; the healthchecks gate readiness). Then `DATABASE_URL=postgres://postgres:postgres@localhost:5432/postgres bun test` and `DATABASE_URL=mariadb://root:mariadb@localhost:3306/mariadb bun test tests/driver-mariadb.test.ts tests/cycle-integration.test.ts`; `docker compose down` afterwards if you started it just for the run.
+- Local runbook: `docker compose up -d` starts three databases (see `compose.yaml`; the healthchecks gate readiness): postgres:14 and mariadb:11 exactly as CI configures them, plus mysql:8.0 for local `mysql://` verification (not in CI — host port 3307, db `bunsql`, root/mysql; it runs with `--default-authentication-plugin=mysql_native_password` because MySQL 8's default `caching_sha2_password` over plain TCP requires TLS or `allowPublicKeyRetrieval: true` on the server config side, see README). Then `DATABASE_URL=postgres://postgres:postgres@localhost:5432/postgres bun test`, `DATABASE_URL=mariadb://root:mariadb@localhost:3306/mariadb bun test tests/driver-mariadb.test.ts tests/cycle-integration.test.ts` and, for MySQL, the same two integration files with `DATABASE_URL=mysql://root:mysql@localhost:3307/bunsql`; `docker compose down` afterwards if you started it just for the run.
 - Tests only ever hit the database named by `DATABASE_URL` — dev databases, never production.
 
 ## Architecture
@@ -71,8 +71,8 @@ src/
 └── drivers/        # postgres / mariadb / sqlite implementations of MigrationDriver
 ```
 
-- `createDriver(url)` (`src/core/driver.ts`) picks the driver by URL protocol (`postgres://`/`postgresql://`, `mariadb://`/`mysql://`, `sqlite://`/`sqlite:`) with dynamic imports; unknown protocols throw. Drivers implement `MigrationDriver` (`install`/`listExecuted`/`record`/`setChecksum`/`remove`/`close`).
-- Migration semantics: files applied in **descending filename order** (`listFiles` sorts and reverses; `createMigration` generates inverted-timestamp names like `9999999999999_2026_09_13_name.js` so newer sorts first). The `migrations` table has UNIQUE on name plus a SHA-256 checksum (`Bun.CryptoHasher`); `record` deduplicates at the DB level (`ON CONFLICT DO NOTHING` / `INSERT IGNORE` / `INSERT OR IGNORE`); `up` backfills checksums for legacy records (`checksum IS NULL`) and throws `ChecksumDriftError` if an applied file changed on disk.
+- `createDriver(url)` (`src/core/driver.ts`) picks the driver by URL protocol (`postgres://`/`postgresql://`, `mariadb://`/`mysql://`, `sqlite://`/`sqlite:`) with dynamic imports; unknown protocols throw. Drivers implement `MigrationDriver` (`install`/`listExecuted`/`record`/`setChecksum`/`remove`/`transaction`/`close`).
+- Migration semantics: files applied in **descending filename order** (`listFiles` sorts and reverses; `createMigration` generates inverted-timestamp names like `9999999999999_2026_09_13_name.js` so newer sorts first). The `migrations` table has UNIQUE on name plus a SHA-256 checksum (`Bun.CryptoHasher`); `record` deduplicates at the DB level (`ON CONFLICT DO NOTHING` / `INSERT IGNORE` / `INSERT OR IGNORE`); `up` backfills checksums for legacy records (`checksum IS NULL`) and throws `ChecksumDriftError` if an applied file changed on disk. Migration functions with a declared `tx` parameter (`up(tx)`/`down(tx)`) run inside `driver.transaction` (`Bun.SQL` `begin` on the driver connection, rollback on throw) — dispatched by function arity in `run-step.ts`; zero-argument functions keep the global-client, non-transactional behavior. On MySQL/MariaDB DDL implicitly commits, so the transaction protects only DML there.
 - Error contract: the library throws (connection errors, failing migrations, `ChecksumDriftError`) and always closes the driver in `finally`; the CLI catches, prints via `log()` and exits with code 1. Library code never calls `process.exit`.
 - All user-facing console output goes through `log()` from `src/core/console.ts` — no bare `console.*` outside it.
 - New public API functions are exported only via `src/index.ts`; keep `src/api/*` and `src/core/*` free of CLI concerns, `src/cli/*` free of business logic.
@@ -95,6 +95,7 @@ src/
 - Readability: small functions, early return, no deep nesting.
 - No comments in code. The code explains itself: clear names, small functions. Comments only on explicit request.
 - Runtime input (argv, env vars, URLs) is validated explicitly — TS types do not validate runtime: parse args in one place (`parseArgs`), parse/guard `DATABASE_URL` before use (`getDatabaseUrl`), `new URL()` in a try/catch with a domain error.
+- Atomic related changes: several sequential writes forming one state change (config + sidecar file, manifest + its install records) either all succeed together or roll back entirely; plan for a failure in the middle of the chain.
 
 ## Rules
 
@@ -108,3 +109,34 @@ src/
 8. When changing the public API, update `README.md` and `src/index.ts` exports in the same change.
 9. On larger changes (new API function, driver, CLI command, scripts, CI) — update AGENTS.md within the same change.
 10. Never commit or push unless the user explicitly asked — even if the change is needed on a remote branch (e.g. for CI on a PR). Changes stay in the working tree; committing and pushing is the user's call.
+11. Tests cover both the happy flow and failure scenarios: identify at which step a failure is possible and how the app must handle it.
+12. Keep code coverage at 90% or higher.
+
+## Skills
+
+- No project-local skills yet; domain-specific conventions (a new driver, the CLI, a new API area) go into a local skill, not here.
+- A local skill is updated in the same change as the code it describes.
+- Reusable project-wide pieces (helpers, shared checks) are listed in a dedicated skill once they exist — so they are reused, not duplicated.
+- AGENTS.md stays global-only: no changelogs, task logs, or README duplicates.
+
+## Priority of Sources
+
+On conflict, higher priority first:
+
+1. User instructions (in chat).
+2. AGENTS.md.
+3. Local skills.
+
+## Dependencies
+
+- Runtime dependencies remain banned — zero-deps is a product feature (see Toolchain).
+- A new dev dependency: pick a popular, widely-used package, ask the user before installing, and use a version released more than 7 days ago — no fresh releases.
+
+## Exceptions
+
+Conscious global compromises that stand above the general rules:
+
+- Zero runtime dependencies — stands above the general dependency policy.
+- Bun-only: Node.js is not supported; Bun built-ins over portable libraries.
+- TS sources ship as-is — no build step, no `dist/`.
+- Migrations apply in descending filename order — intentional; do not "fix" it to ascending.

@@ -72,4 +72,30 @@ describe("MigrationDriver — Postgres (integration)", () => {
       await driver.close();
     }
   });
+
+  itWithPostgres("transaction() commits and rolls back through the tx client", async () => {
+    const driver = await createDriver(DATABASE_URL as string);
+    try {
+      await driver.transaction(async (tx) => {
+        await tx`DROP TABLE IF EXISTS driver_tx_probe`;
+        await tx`CREATE TABLE driver_tx_probe (id INTEGER PRIMARY KEY, name TEXT)`;
+        await tx`INSERT INTO driver_tx_probe (id, name) VALUES (1, 'one')`;
+      });
+
+      await expect(
+        driver.transaction(async (tx) => {
+          await tx`INSERT INTO driver_tx_probe (id, name) VALUES (2, 'rolled-back')`;
+          throw new Error("tx-boom");
+        }),
+      ).rejects.toThrow("tx-boom");
+
+      const rows = (await driver.transaction(
+        (tx) => tx`SELECT COUNT(*) AS n FROM driver_tx_probe`,
+      )) as Array<{ n: number | string }>;
+      expect(Number(rows[0]?.n)).toBe(1);
+      await driver.transaction((tx) => tx`DROP TABLE driver_tx_probe`);
+    } finally {
+      await driver.close();
+    }
+  });
 });

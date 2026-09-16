@@ -82,6 +82,32 @@ describe("MigrationDriver.remove()", () => {
   });
 });
 
+describe("MigrationDriver.transaction()", () => {
+  it("commits statements executed through the tx client", async () => {
+    await driver.transaction(async (tx) => {
+      await tx`CREATE TABLE driver_tx_commit (id INTEGER PRIMARY KEY, name TEXT)`;
+      await tx`INSERT INTO driver_tx_commit (id, name) VALUES (1, 'one')`;
+    });
+    const rows = (await driver.transaction(
+      (tx) => tx`SELECT COUNT(*) AS n FROM driver_tx_commit`,
+    )) as Array<{ n: number }>;
+    expect(Number(rows[0]?.n)).toBe(1);
+  });
+
+  it("rolls back when the callback throws", async () => {
+    await expect(
+      driver.transaction(async (tx) => {
+        await tx`INSERT INTO driver_tx_commit (id, name) VALUES (2, 'rolled-back')`;
+        throw new Error("tx-boom");
+      }),
+    ).rejects.toThrow("tx-boom");
+    const rows = (await driver.transaction(
+      (tx) => tx`SELECT COUNT(*) AS n FROM driver_tx_commit`,
+    )) as Array<{ n: number }>;
+    expect(Number(rows[0]?.n)).toBe(1);
+  });
+});
+
 describe("MigrationDriver.close()", () => {
   it("closes the connection without errors", async () => {
     await driver.close();

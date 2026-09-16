@@ -5,7 +5,7 @@
 
 Zero-ORM SQL file migrations for [Bun](https://bun.sh): PostgreSQL, MySQL/MariaDB and SQLite through the built-in `Bun.SQL` client.
 
-No ORM, no schema diffing, no lock-in — you write plain `.js` migration files with `up()`/`down()` exports and run them with a tiny CLI or the programmatic API.
+No ORM, no schema diffing, no lock-in — you write plain `.js` migration files with `up()`/`down()` exports (optionally `up(tx)`/`down(tx)` for transactional migrations, see below) and run them with a tiny CLI or the programmatic API.
 
 ## Features
 
@@ -63,6 +63,28 @@ Files live in the migrations directory (default `./migrations`, override with `-
 ```
 9999999999999_2026_09_13_add_users_table.js
 ```
+
+### Transactional migrations
+
+Declare a `tx` parameter on `up`/`down` and the migration runs inside a single database transaction: if any statement fails, the partial work is rolled back instead of being left half-applied, and nothing is recorded.
+
+```js
+const up = async (tx) => {
+  await tx`CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)`;
+  await tx`INSERT INTO users (id, name) VALUES (1, 'admin')`;
+};
+
+const down = async (tx) => {
+  await tx`DROP TABLE users`;
+};
+
+export { up, down };
+```
+
+- `bunsql-native-migrate create` generates stubs in this form by default; `tx` is a Bun `SQL` client bound to the same database the runner is connected to.
+- Migrations declared **without** parameters keep using the global `sql` client and run without a transaction — both styles can coexist in one project, decided per migration by the declared signature.
+- Engine caveats: PostgreSQL and SQLite roll back everything, DDL included. On MySQL/MariaDB any DDL statement implicitly commits the current transaction, so there only DML gets rollback protection.
+- The tracking record is written right after the transaction commits. A crash in that single-statement window leaves the migration applied but unrecorded — the next `up` would re-run it, so keep critical migrations idempotent (this window exists for plain `up()` migrations too, just wider).
 
 ### Migrations directory path resolution
 
