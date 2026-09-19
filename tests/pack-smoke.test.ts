@@ -107,12 +107,14 @@ describe("pack smoke test (tarball as a consumer sees it)", () => {
     expect(help.exitCode).toBe(0);
     expect(help.output).toContain("Usage: bunsql-native-migrate");
 
-    const created = await run([...cli, "create", "smoke_migration", "--dir", "list"], {
+    const init = await run([...cli, "init", "--dir", "list"], {
       cwd: projectDir,
       env,
     });
-    expect(created.exitCode).toBe(0);
-    expect(created.output).toContain("Migration created:");
+    expect(init.exitCode).toBe(0);
+    expect(init.output).toContain("Migration created:");
+    expect(init.output).toContain("initial.ts");
+    expect(init.output).toContain("DATABASE_URL");
 
     const createdJs = await run([...cli, "create", "smoke_js", "--lang", "js", "--dir", "list"], {
       cwd: projectDir,

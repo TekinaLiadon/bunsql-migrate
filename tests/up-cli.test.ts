@@ -149,7 +149,10 @@ describe("bunsql-migrate CLI", () => {
       writeMigration(listDir, "1_first.js", "await sql`CREATE TABLE first_table (id INTEGER)`;");
 
       expect((await runCli(["install"], env)).exitCode).toBe(0);
-      expect((await runCli(["up"], env)).exitCode).toBe(0);
+      const up = await runCli(["up"], env);
+      expect(up.exitCode).toBe(0);
+      expect(up.output).toContain("1_first.js migrated up (");
+      expect(up.output).toContain("2_second.ts migrated up (");
 
       const tables = readTables(dbPath);
       expect(tables).toContain("first_table");
@@ -308,6 +311,7 @@ describe("bunsql-migrate CLI", () => {
       const down = await runCli(["down"], env);
       expect(down.exitCode).toBe(0);
       expect(down.output).toContain("1_first.js");
+      expect(down.output).toContain("1_first.js rolled back (");
       expect(readRecorded(dbPath)).toEqual(["2_second.js"]);
     } finally {
       rmSync(path.dirname(dbPath), { recursive: true, force: true });
@@ -436,6 +440,62 @@ describe("bunsql-migrate CLI", () => {
       expect(result.output).toContain("nope.js is not in the migrations directory");
     } finally {
       rmSync(path.dirname(listDir), { recursive: true, force: true });
+    }
+  });
+
+  it("init scaffolds the migrations directory with the first stub", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "bunsql-init-"));
+    try {
+      const listDir = path.join(dir, "migrations");
+      const env = { ...process.env, MIGRATION_LIST_DIR: listDir };
+
+      const init = await runCli(["init"], env);
+      expect(init.exitCode).toBe(0);
+      expect(init.output).toContain("Migration created:");
+      expect(init.output).toContain("initial.ts");
+      expect(init.output).toContain("DATABASE_URL");
+      expect(init.output).toContain("bunx bunsql-native-migrate up");
+
+      const files = await Array.fromAsync(new Bun.Glob("*.*").scan({ cwd: listDir }));
+      expect(files).toHaveLength(1);
+      expect(files[0]).toContain("initial.ts");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("init is idempotent: no duplicate stub on an existing migrations directory", async () => {
+    const { listDir, env } = makeScenario();
+    try {
+      writeMigration(listDir, "1_existing.js", "await sql`CREATE TABLE init_table (id INTEGER)`;");
+      expect((await runCli(["up"], env)).exitCode).toBe(0);
+
+      const init = await runCli(["init"], env);
+      expect(init.exitCode).toBe(0);
+      expect(init.output).toContain("already has 1 migration(s)");
+      expect(init.output).not.toContain("Migration created:");
+
+      const files = await Array.fromAsync(new Bun.Glob("*.*").scan({ cwd: listDir }));
+      expect(files).toEqual(["1_existing.js"]);
+    } finally {
+      rmSync(path.dirname(listDir), { recursive: true, force: true });
+    }
+  });
+
+  it("init honors --dir for a nested directory that does not exist yet", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "bunsql-init-dir-"));
+    try {
+      const nested = path.join(dir, "db", "versions");
+      const env = { ...process.env, MIGRATION_LIST_DIR: nested };
+      const init = await runCli(["init", "--dir", nested], env);
+      expect(init.exitCode).toBe(0);
+      expect(init.output).toContain("Migration created:");
+
+      const files = await Array.fromAsync(new Bun.Glob("*.ts").scan({ cwd: nested }));
+      expect(files).toHaveLength(1);
+      expect(files[0]).toContain("initial.ts");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
     }
   });
 });

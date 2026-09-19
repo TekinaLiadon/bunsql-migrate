@@ -136,4 +136,38 @@ describe("MigrationDriver — MariaDB (integration)", () => {
       await second.close();
     }
   });
+
+  itWithMariaDb("runs the driver cycle against a custom tableName", async () => {
+    const tableName = `migrations_custom_${Date.now()}`;
+    const driver = await createDriver(DATABASE_URL as string, { tableName });
+    try {
+      await driver.install();
+      await driver.install();
+
+      expect(await driver.listExecuted()).toEqual([]);
+
+      await driver.record("0001-custom", "checksum-1");
+      await driver.record("0001-custom", "checksum-duplicate");
+
+      const executed = await driver.listExecuted();
+      expect(executed).toEqual([{ name: "0001-custom", checksum: "checksum-1" }]);
+
+      await driver.setChecksum("0001-custom", "checksum-1b");
+      expect(await driver.listExecuted()).toEqual([
+        { name: "0001-custom", checksum: "checksum-1b" },
+      ]);
+
+      await driver.remove("0001-custom");
+      expect(await driver.listExecuted()).toEqual([]);
+    } finally {
+      await driver.close();
+    }
+
+    const cleanup = new SQL(DATABASE_URL as string);
+    try {
+      await cleanup.unsafe(`DROP TABLE IF EXISTS \`${tableName}\``);
+    } finally {
+      cleanup.close({ timeout: 0 });
+    }
+  });
 });

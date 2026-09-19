@@ -4,7 +4,10 @@ import { migrateDown } from "../api/down.js";
 import { migrateStatus } from "../api/status.js";
 import { installMigrations } from "../api/install.js";
 import { createMigrationCommand, type MigrationLang } from "../api/create.js";
+import { initMigrations } from "../api/init.js";
+import { markMigrationsApplied } from "../api/mark.js";
 import { ChecksumDriftError, MigrationLockError, MigrationNotFoundError } from "../api/options.js";
+import { InvalidIdentifierError } from "../core/identifiers.js";
 import { log } from "../core/console.js";
 
 interface CliArgs {
@@ -15,6 +18,9 @@ interface CliArgs {
   lang?: MigrationLang | undefined;
   to?: string | undefined;
   lockTimeout?: number | undefined;
+  table?: string | undefined;
+  schema?: string | undefined;
+  dryRun: boolean;
   all: boolean;
   strict: boolean;
   help: boolean;
@@ -27,6 +33,9 @@ function parseArgs(argv: string[]): CliArgs {
   let lang: MigrationLang | undefined;
   let to: string | undefined;
   let lockTimeout: number | undefined;
+  let table: string | undefined;
+  let schema: string | undefined;
+  let dryRun = false;
   let all = false;
   let strict = false;
   let help = false;
@@ -63,8 +72,22 @@ function parseArgs(argv: string[]): CliArgs {
         usage(1);
       }
       lockTimeout = parsed;
+    } else if (arg === "--table") {
+      table = argv[++i];
+      if (table === undefined) {
+        log({ text: "--table requires a tracking table name", type: "error" });
+        usage(1);
+      }
+    } else if (arg === "--schema") {
+      schema = argv[++i];
+      if (schema === undefined) {
+        log({ text: "--schema requires a postgres schema name", type: "error" });
+        usage(1);
+      }
     } else if (arg === "--all") {
       all = true;
+    } else if (arg === "--dry-run") {
+      dryRun = true;
     } else if (arg === "--strict") {
       strict = true;
     } else if (arg === "--help" || arg === "-h") {
@@ -81,6 +104,9 @@ function parseArgs(argv: string[]): CliArgs {
     lang,
     to,
     lockTimeout,
+    table,
+    schema,
+    dryRun,
     all,
     strict,
     help,
@@ -89,7 +115,7 @@ function parseArgs(argv: string[]): CliArgs {
 
 function usage(exitCode: number): never {
   log({
-    text: "Usage: bunsql-native-migrate <up|down [n]|install|create [name]|status> [--dir <migrations-dir>] [--to <name>] [--lock-timeout <seconds>] [--all] [--lang <js|ts>] [--git] [--strict] [--help]",
+    text: "Usage: bunsql-native-migrate <init|up|down [n]|install|create [name]|mark [name]|status> [--dir <migrations-dir>] [--to <name>] [--lock-timeout <seconds>] [--table <name>] [--schema <name>] [--dry-run] [--all] [--lang <js|ts>] [--git] [--strict] [--help]",
     type: "info",
   });
   process.exit(exitCode);
@@ -97,6 +123,10 @@ function usage(exitCode: number): never {
 
 const args = parseArgs(process.argv.slice(2));
 const listDirOptions = args.dir ? { listDir: args.dir } : {};
+const tableOptions = {
+  ...(args.table !== undefined ? { tableName: args.table } : {}),
+  ...(args.schema !== undefined ? { schema: args.schema } : {}),
+};
 
 if (args.help) {
   usage(0);
@@ -105,11 +135,16 @@ if (args.help) {
 try {
   switch (args.command) {
     case "up": {
-      const { applied } = await migrateUp({
+      const { applied, planned } = await migrateUp({
         ...listDirOptions,
+        ...tableOptions,
         ...(args.to ? { to: args.to } : {}),
         ...(args.lockTimeout !== undefined ? { lockTimeout: args.lockTimeout } : {}),
+        ...(args.dryRun ? { dryRun: true } : {}),
       });
+      if (planned !== undefined && planned.length > 0) {
+        log({ text: `Would apply ${planned.length} migration(s).`, type: "info" });
+      }
       if (applied.length > 0) {
         log({ text: `Applied ${applied.length} migration(s).`, type: "success" });
       }
@@ -135,14 +170,29 @@ try {
         }
         steps = parsed;
       }
-      const { reverted } = await migrateDown({ ...listDirOptions, steps });
+      const { reverted, planned } = await migrateDown({
+        ...listDirOptions,
+        ...tableOptions,
+        steps,
+        ...(args.dryRun ? { dryRun: true } : {}),
+      });
+      if (planned !== undefined && planned.length > 0) {
+        log({ text: `Would revert ${planned.length} migration(s).`, type: "info" });
+      }
       if (reverted.length > 0) {
         log({ text: `Reverted ${reverted.length} migration(s).`, type: "success" });
       }
       break;
     }
+    case "init": {
+      await initMigrations({
+        ...listDirOptions,
+        ...(args.lang !== undefined ? { lang: args.lang } : {}),
+      });
+      break;
+    }
     case "install": {
-      await installMigrations(listDirOptions);
+      await installMigrations({ ...listDirOptions, ...tableOptions });
       break;
     }
     case "create": {
@@ -155,8 +205,28 @@ try {
       });
       break;
     }
+    case "mark": {
+      const [name] = args.positional;
+      if (args.all && name !== undefined) {
+        log({ text: "Use either --all or a migration file name, not both.", type: "error" });
+        usage(1);
+      }
+      if (!args.all && name === undefined) {
+        log({ text: "mark requires a migration file name or --all.", type: "error" });
+        usage(1);
+      }
+      const { marked } = await markMigrationsApplied({
+        ...listDirOptions,
+        ...tableOptions,
+        ...(name !== undefined ? { to: name } : {}),
+      });
+      if (marked.length > 0) {
+        log({ text: `Marked ${marked.length} migration(s) as applied.`, type: "success" });
+      }
+      break;
+    }
     case "status": {
-      const { applied, pending } = await migrateStatus(listDirOptions);
+      const { applied, pending } = await migrateStatus({ ...listDirOptions, ...tableOptions });
       for (const entry of applied) {
         log({ text: `${entry.name} applied`, type: "info" });
       }
@@ -177,7 +247,8 @@ try {
   if (
     error instanceof ChecksumDriftError ||
     error instanceof MigrationNotFoundError ||
-    error instanceof MigrationLockError
+    error instanceof MigrationLockError ||
+    error instanceof InvalidIdentifierError
   ) {
     log({ text: error.message, type: "error" });
   } else {

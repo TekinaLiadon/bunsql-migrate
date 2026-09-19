@@ -19,9 +19,12 @@ const prefix = `cycle_${Date.now()}_`;
 const tableA = `${prefix}a`;
 const tableB = `${prefix}b`;
 const tableC = `${prefix}c`;
+const tableD = `${prefix}d`;
 const fileA = `9999999999999_${prefix}a.js`;
 const fileB = `9999999999998_${prefix}b.js`;
 const fileC = `9999999999997_${prefix}c.js`;
+const fileD = `9999999999996_${prefix}d.up.sql`;
+const fileDDown = `9999999999996_${prefix}d.down.sql`;
 
 function migrationFile(table: string): string {
   return `import { sql } from "bun";
@@ -57,6 +60,11 @@ try {
   writeFileSync(path.join(listDir, fileA), migrationFile(tableA));
   writeFileSync(path.join(listDir, fileB), migrationFile(tableB));
   writeFileSync(path.join(listDir, fileC), transactionalMigrationFile(tableC));
+  writeFileSync(
+    path.join(listDir, fileD),
+    `CREATE TABLE ${tableD} (id INTEGER PRIMARY KEY, name TEXT);\nINSERT INTO ${tableD} (id, name) VALUES (1, 'row');\n`,
+  );
+  writeFileSync(path.join(listDir, fileDDown), `DROP TABLE ${tableD};\n`);
 
   await installMigrations(options);
   await installMigrations(options);
@@ -71,7 +79,7 @@ try {
   }
 
   const rest = await migrateUp(options);
-  if (rest.applied.length !== 1 || rest.applied[0] !== fileC) {
+  if (rest.applied.length !== 2 || rest.applied[0] !== fileC || rest.applied[1] !== fileD) {
     throw new Error(`unexpected remaining applied: ${JSON.stringify(rest.applied)}`);
   }
 
@@ -84,7 +92,15 @@ try {
   const rowsC = (await sql.unsafe(`SELECT COUNT(*) AS n FROM ${tableC}`)) as Array<{
     n: number | string;
   }>;
-  if (Number(rowsA[0]?.n) !== 1 || Number(rowsB[0]?.n) !== 1 || Number(rowsC[0]?.n) !== 1) {
+  const rowsD = (await sql.unsafe(`SELECT COUNT(*) AS n FROM ${tableD}`)) as Array<{
+    n: number | string;
+  }>;
+  if (
+    Number(rowsA[0]?.n) !== 1 ||
+    Number(rowsB[0]?.n) !== 1 ||
+    Number(rowsC[0]?.n) !== 1 ||
+    Number(rowsD[0]?.n) !== 1
+  ) {
     throw new Error("migration SQL did not land in the database");
   }
 
@@ -94,7 +110,7 @@ try {
   }
 
   const statusAfterUp = await migrateStatus(options);
-  if (statusAfterUp.applied.length !== 3 || statusAfterUp.pending.length !== 0) {
+  if (statusAfterUp.applied.length !== 4 || statusAfterUp.pending.length !== 0) {
     throw new Error(`unexpected status after up: ${JSON.stringify(statusAfterUp)}`);
   }
 
@@ -111,19 +127,24 @@ try {
   }
 
   const first = await migrateDown({ ...options, steps: 2 });
-  if (first.reverted.length !== 2 || first.reverted[0] !== fileC || first.reverted[1] !== fileB) {
+  if (first.reverted.length !== 2 || first.reverted[0] !== fileD || first.reverted[1] !== fileC) {
     throw new Error(
-      `expected down(steps: 2) to revert [${fileC}, ${fileB}], got ${JSON.stringify(first.reverted)}`,
+      `expected down(steps: 2) to revert [${fileD}, ${fileC}], got ${JSON.stringify(first.reverted)}`,
     );
   }
 
   const second = await migrateDown(options);
-  if (second.reverted.length !== 1 || second.reverted[0] !== fileA) {
-    throw new Error(`expected down to revert [${fileA}], got ${JSON.stringify(second.reverted)}`);
+  if (second.reverted.length !== 1 || second.reverted[0] !== fileB) {
+    throw new Error(`expected down to revert [${fileB}], got ${JSON.stringify(second.reverted)}`);
+  }
+
+  const third = await migrateDown(options);
+  if (third.reverted.length !== 1 || third.reverted[0] !== fileA) {
+    throw new Error(`expected down to revert [${fileA}], got ${JSON.stringify(third.reverted)}`);
   }
 
   const statusAfterDown = await migrateStatus(options);
-  if (statusAfterDown.applied.length !== 0 || statusAfterDown.pending.length !== 3) {
+  if (statusAfterDown.applied.length !== 0 || statusAfterDown.pending.length !== 4) {
     throw new Error(`unexpected status after down: ${JSON.stringify(statusAfterDown)}`);
   }
 

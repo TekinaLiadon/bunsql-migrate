@@ -3,7 +3,7 @@ import path from "node:path";
 
 export const DEFAULT_MIGRATIONS_DIR = "migrations";
 
-export const MIGRATION_EXTENSIONS = ["js", "ts"] as const;
+export const MIGRATION_EXTENSIONS = ["js", "ts", "up.sql"] as const;
 
 export async function listFiles(dir: string, extensions: readonly string[]): Promise<string[]> {
   const matchedFiles: string[] = [];

@@ -12,12 +12,21 @@ export interface MigrationDriver {
   setChecksum(migration: string, checksum: string): Promise<void>;
   remove(migration: string): Promise<void>;
   transaction<T>(run: (tx: SQL) => Promise<T>): Promise<T>;
+  trackingTableExists?(): Promise<boolean>;
   tryLock?(timeoutSeconds: number): Promise<boolean>;
   releaseLock?(): Promise<void>;
   close(): Promise<void>;
 }
 
-export async function createDriver(databaseUrl: string): Promise<MigrationDriver> {
+export interface DriverTableOptions {
+  tableName?: string;
+  schema?: string;
+}
+
+export async function createDriver(
+  databaseUrl: string,
+  options: DriverTableOptions = {},
+): Promise<MigrationDriver> {
   let protocol: string;
   try {
     protocol = new URL(databaseUrl).protocol.replace(":", "");
@@ -28,20 +37,25 @@ export async function createDriver(databaseUrl: string): Promise<MigrationDriver
       throw new Error(`Cannot parse database URL: ${databaseUrl}`);
     }
   }
+  if (options.schema !== undefined && protocol !== "postgres" && protocol !== "postgresql") {
+    throw new Error(
+      "The schema option is only supported for postgres URLs — MySQL/MariaDB selects the database in the URL, SQLite has no schemas",
+    );
+  }
   switch (protocol) {
     case "postgres":
     case "postgresql": {
       const mod = await import("./../drivers/postgres.js");
-      return mod.create(databaseUrl);
+      return mod.create(databaseUrl, options);
     }
     case "sqlite": {
       const mod = await import("./../drivers/sqlite.js");
-      return mod.create(databaseUrl);
+      return mod.create(databaseUrl, options);
     }
     case "mariadb":
     case "mysql": {
       const mod = await import("./../drivers/mariadb.js");
-      return mod.create(databaseUrl);
+      return mod.create(databaseUrl, options);
     }
     default:
       throw new Error(

@@ -1,6 +1,6 @@
 {
   "name": "bunsql-native-migrate",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Zero-ORM SQL file migrations for Bun: PostgreSQL, MySQL/MariaDB and SQLite through the built-in Bun.SQL client",
   "keywords": [
     "bun",
@@ -38,6 +38,7 @@
   },
   "scripts": {
     "test": "bun test",
+    "test:matrix": "bun scripts/matrix.ts",
     "typecheck": "tsgo --noEmit",
     "lint": "oxlint",
     "fmt": "oxfmt",

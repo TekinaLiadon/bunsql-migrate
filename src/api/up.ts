@@ -1,6 +1,8 @@
 import path from "node:path";
 import { checksumFile, listFiles, MIGRATION_EXTENSIONS, resolveListDir } from "../core/fs.js";
 import { log } from "../core/console.js";
+import { formatDuration } from "../core/duration.js";
+import type { ExecutedMigration, MigrationDriver } from "../core/driver.js";
 import {
   type MigrateUpOptions,
   type MigrateUpResult,
@@ -9,17 +11,28 @@ import {
 } from "./options.js";
 import { runWithDriver } from "./run-with-driver.js";
 import { runMigrationStep } from "./run-step.js";
+import { loadMigration } from "./load-migration.js";
 import { resolveLockTimeout, withMigrationLock } from "./lock.js";
+
+async function listExecutedForPlan(driver: MigrationDriver): Promise<ExecutedMigration[]> {
+  if ((await driver.trackingTableExists?.()) === false) {
+    return [];
+  }
+  return driver.listExecuted();
+}
 
 export async function migrateUp(options: MigrateUpOptions = {}): Promise<MigrateUpResult> {
   const listDir = resolveListDir(options.listDir);
   const target = options.to;
+  const dryRun = options.dryRun ?? false;
   const lockTimeout = resolveLockTimeout(options.lockTimeout);
 
   return runWithDriver(options, async (driver) => {
-    await driver.install();
+    if (!dryRun) {
+      await driver.install();
+    }
 
-    return withMigrationLock(driver, lockTimeout, async () => {
+    const run = async (): Promise<MigrateUpResult> => {
       const allFiles = await listFiles(listDir, MIGRATION_EXTENSIONS);
       if (target !== undefined && !allFiles.includes(target)) {
         throw new MigrationNotFoundError(target);
@@ -33,7 +46,7 @@ export async function migrateUp(options: MigrateUpOptions = {}): Promise<Migrate
         ),
       );
 
-      const executed = await driver.listExecuted();
+      const executed = dryRun ? await listExecutedForPlan(driver) : await driver.listExecuted();
       const executedByName = new Map(executed.map((entry) => [entry.name, entry]));
 
       for (const [file, checksum] of checksums) {
@@ -41,8 +54,10 @@ export async function migrateUp(options: MigrateUpOptions = {}): Promise<Migrate
         if (!record) continue;
 
         if (record.checksum === null) {
-          await driver.setChecksum(file, checksum);
-          log({ text: `${file} checksum saved (legacy record)`, type: "info" });
+          if (!dryRun) {
+            await driver.setChecksum(file, checksum);
+            log({ text: `${file} checksum saved (legacy record)`, type: "info" });
+          }
           continue;
         }
 
@@ -55,9 +70,20 @@ export async function migrateUp(options: MigrateUpOptions = {}): Promise<Migrate
       if (target !== undefined) {
         if (executedByName.has(target)) {
           log({ text: `${target} is already applied.`, type: "info" });
-          return { applied: [] };
+          return dryRun ? { applied: [], planned: [] } : { applied: [] };
         }
         pending = pending.slice(0, pending.indexOf(target) + 1);
+      }
+
+      if (dryRun) {
+        log({ text: "Dry run — no changes will be made.", type: "info" });
+        if (pending.length === 0) {
+          log({ text: "No pending migrations.", type: "warn" });
+        }
+        for (const file of pending) {
+          log({ text: `${file} would be applied`, type: "info" });
+        }
+        return { applied: [], planned: pending };
       }
 
       const applied: string[] = [];
@@ -71,15 +97,15 @@ export async function migrateUp(options: MigrateUpOptions = {}): Promise<Migrate
         const checksum = checksums.get(file);
         if (!checksum) continue;
         try {
-          const mod = await import(path.join(listDir, file));
-          if (typeof mod.up !== "function") {
+          const { up } = await loadMigration(listDir, file);
+          if (up === null) {
             log({ text: `${file} has no up() export, skipping`, type: "warn" });
             continue;
           }
-          await runMigrationStep(driver, mod.up);
+          const durationMs = await runMigrationStep(driver, up);
           await driver.record(file, checksum);
           applied.push(file);
-          log({ text: `${file} migrated up`, type: "success" });
+          log({ text: `${file} migrated up (${formatDuration(durationMs)})`, type: "success" });
         } catch (error) {
           log({ text: `${file} migration failed`, type: "error", error });
           throw error;
@@ -87,6 +113,11 @@ export async function migrateUp(options: MigrateUpOptions = {}): Promise<Migrate
       }
 
       return { applied };
-    });
+    };
+
+    if (dryRun) {
+      return run();
+    }
+    return withMigrationLock(driver, lockTimeout, run);
   });
 }

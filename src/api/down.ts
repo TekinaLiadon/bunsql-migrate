@@ -1,10 +1,11 @@
-import path from "node:path";
 import { resolveListDir } from "../core/fs.js";
 import { log } from "../core/console.js";
+import { formatDuration } from "../core/duration.js";
 import type { MigrationDriver } from "../core/driver.js";
 import type { MigrateDownOptions, MigrateDownResult } from "./options.js";
 import { runWithDriver } from "./run-with-driver.js";
 import { runMigrationStep } from "./run-step.js";
+import { isSqlMigration, loadMigration } from "./load-migration.js";
 
 function resolveStepCount(steps: number | "all" | undefined, appliedCount: number): number {
   if (steps === undefined) return 1;
@@ -16,31 +17,46 @@ function resolveStepCount(steps: number | "all" | undefined, appliedCount: numbe
 }
 
 async function revertOne(driver: MigrationDriver, listDir: string, file: string): Promise<void> {
-  const mod = await import(path.join(listDir, file));
+  const { down } = await loadMigration(listDir, file);
 
-  if (typeof mod.down !== "function") {
-    log({ text: `${file} has no down() export, removing tracking record`, type: "warn" });
+  if (down === null) {
+    const reason = isSqlMigration(file) ? "has no .down.sql pair" : "has no down() export";
+    log({ text: `${file} ${reason}, removing tracking record`, type: "warn" });
     await driver.remove(file);
     log({ text: `${file} tracking record removed`, type: "success" });
     return;
   }
 
-  await runMigrationStep(driver, mod.down);
+  const durationMs = await runMigrationStep(driver, down);
   await driver.remove(file);
-  log({ text: `${file} rolled back`, type: "success" });
+  log({ text: `${file} rolled back (${formatDuration(durationMs)})`, type: "success" });
 }
 
 export async function migrateDown(options: MigrateDownOptions = {}): Promise<MigrateDownResult> {
   const listDir = resolveListDir(options.listDir);
+  const dryRun = options.dryRun ?? false;
 
   return runWithDriver(options, async (driver) => {
     const executed = await driver.listExecuted();
     if (executed.length === 0) {
       log({ text: "No migrations to rollback.", type: "warn" });
-      return { reverted: [] };
+      return dryRun ? { reverted: [], planned: [] } : { reverted: [] };
     }
 
     const count = resolveStepCount(options.steps, executed.length);
+    const plan = executed
+      .slice(-count)
+      .reverse()
+      .map((entry) => entry.name);
+
+    if (dryRun) {
+      log({ text: "Dry run — no changes will be made.", type: "info" });
+      for (const file of plan) {
+        log({ text: `${file} would be rolled back`, type: "info" });
+      }
+      return { reverted: [], planned: plan };
+    }
+
     const reverted: string[] = [];
 
     for (const entry of executed.slice(-count).reverse()) {

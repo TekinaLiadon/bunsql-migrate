@@ -1,20 +1,52 @@
 services:
-  postgres:
+  pg14:
     image: postgres:14
+    profiles: [pg14]
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: postgres
     ports:
-      - "5432:5432"
+      - "5434:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
       timeout: 5s
       retries: 10
 
-  mariadb:
-    image: mariadb:11
+  pg16:
+    image: postgres:16
+    profiles: [pg16]
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    ports:
+      - "5435:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  pg17:
+    image: postgres:17
+    profiles: [pg17]
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    ports:
+      - "5436:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  mariadb1011:
+    image: mariadb:10.11
+    profiles: [mariadb1011]
     environment:
       MARIADB_ROOT_PASSWORD: mariadb
       MARIADB_DATABASE: mariadb
@@ -26,14 +58,46 @@ services:
       timeout: 5s
       retries: 10
 
-  mysql:
+  mariadb11:
+    image: mariadb:11
+    profiles: [mariadb11]
+    environment:
+      MARIADB_ROOT_PASSWORD: mariadb
+      MARIADB_DATABASE: mariadb
+    ports:
+      - "3307:3306"
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  mysql80:
     image: mysql:8.0
+    profiles: [mysql80]
     environment:
       MYSQL_ROOT_PASSWORD: mysql
       MYSQL_DATABASE: bunsql
     command: --default-authentication-plugin=mysql_native_password
     ports:
-      - "3307:3306"
+      - "3308:3306"
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  mysql84:
+    image: mysql:8.4
+    profiles: [mysql84]
+    environment:
+      MYSQL_ROOT_PASSWORD: mysql
+      MYSQL_DATABASE: bunsql
+    command: --mysql-native-password=ON
+    volumes:
+      - ./docker/mysql84-init.sql:/docker-entrypoint-initdb.d/01-native-password.sql:ro
+    ports:
+      - "3309:3306"
     healthcheck:
       test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
       interval: 5s

@@ -1,5 +1,6 @@
 import { describe, expect, it, afterAll } from "bun:test";
 import { SQL } from "bun";
+import { Database } from "bun:sqlite";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -60,6 +61,46 @@ describe("MigrationDriver — SQLite (integration)", () => {
 
       await driver.remove("legacy-test");
       expect(await driver.listExecuted()).toEqual([]);
+    } finally {
+      await driver.close();
+    }
+  });
+
+  it("runs the full cycle against a custom tableName without creating the default table", async () => {
+    const driver = await createDriver(`sqlite://${join(tempDir, "custom.db")}`, {
+      tableName: "app_migrations",
+    });
+    try {
+      await driver.install();
+      await driver.install();
+
+      expect(await driver.listExecuted()).toEqual([]);
+
+      await driver.record("0001-custom", "checksum-1");
+      await driver.record("0001-custom", "checksum-duplicate");
+
+      const executed = await driver.listExecuted();
+      expect(executed).toEqual([{ name: "0001-custom", checksum: "checksum-1" }]);
+
+      await driver.setChecksum("0001-custom", "checksum-1b");
+      expect(await driver.listExecuted()).toEqual([
+        { name: "0001-custom", checksum: "checksum-1b" },
+      ]);
+
+      await driver.remove("0001-custom");
+      expect(await driver.listExecuted()).toEqual([]);
+
+      const db = new Database(join(tempDir, "custom.db"));
+      try {
+        const tables = db
+          .query<{ name: string }, []>("SELECT name FROM sqlite_master WHERE type = 'table'")
+          .all()
+          .map((row) => row.name);
+        expect(tables).toContain("app_migrations");
+        expect(tables).not.toContain("migrations");
+      } finally {
+        db.close();
+      }
     } finally {
       await driver.close();
     }

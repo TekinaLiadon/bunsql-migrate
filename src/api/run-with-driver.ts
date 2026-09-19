@@ -7,7 +7,10 @@ export async function runWithDriver<T>(
   run: (driver: MigrationDriver) => Promise<T>,
 ): Promise<T> {
   const url = getDatabaseUrl(options.databaseUrl);
-  const driver = await createDriver(url);
+  const driver = await createDriver(url, {
+    ...(options.tableName !== undefined ? { tableName: options.tableName } : {}),
+    ...(options.schema !== undefined ? { schema: options.schema } : {}),
+  });
   try {
     return await run(driver);
   } finally {

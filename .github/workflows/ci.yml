@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 jobs:
   verify:
@@ -49,3 +50,60 @@ jobs:
         run: bun test tests/driver-mariadb.test.ts tests/cycle-integration.test.ts
         env:
           DATABASE_URL: mariadb://root:mariadb@localhost:3306/mariadb
+
+  matrix:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: pg14
+            docker: 'docker run -d --name db -p 5432:5432 --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10 -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=postgres postgres:14'
+            url: postgres://postgres:postgres@localhost:5432/postgres
+            files: tests/driver-postgres.test.ts tests/cycle-integration.test.ts
+          - name: pg16
+            docker: 'docker run -d --name db -p 5432:5432 --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10 -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=postgres postgres:16'
+            url: postgres://postgres:postgres@localhost:5432/postgres
+            files: tests/driver-postgres.test.ts tests/cycle-integration.test.ts
+          - name: pg17
+            docker: 'docker run -d --name db -p 5432:5432 --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10 -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=postgres postgres:17'
+            url: postgres://postgres:postgres@localhost:5432/postgres
+            files: tests/driver-postgres.test.ts tests/cycle-integration.test.ts
+          - name: mariadb1011
+            docker: 'docker run -d --name db -p 3306:3306 --health-cmd "healthcheck.sh --connect --innodb_initialized" --health-interval 5s --health-timeout 5s --health-retries 10 -e MARIADB_ROOT_PASSWORD=mariadb -e MARIADB_DATABASE=mariadb mariadb:10.11'
+            url: mariadb://root:mariadb@localhost:3306/mariadb
+            files: tests/driver-mariadb.test.ts tests/cycle-integration.test.ts
+          - name: mariadb11
+            docker: 'docker run -d --name db -p 3306:3306 --health-cmd "healthcheck.sh --connect --innodb_initialized" --health-interval 5s --health-timeout 5s --health-retries 10 -e MARIADB_ROOT_PASSWORD=mariadb -e MARIADB_DATABASE=mariadb mariadb:11'
+            url: mariadb://root:mariadb@localhost:3306/mariadb
+            files: tests/driver-mariadb.test.ts tests/cycle-integration.test.ts
+          - name: mysql80
+            docker: 'docker run -d --name db -p 3306:3306 --health-cmd "mysqladmin ping -h 127.0.0.1 -uroot -pmysql --silent" --health-interval 5s --health-timeout 5s --health-retries 20 -e MYSQL_ROOT_PASSWORD=mysql -e MYSQL_DATABASE=bunsql mysql:8.0 --default-authentication-plugin=mysql_native_password'
+            url: mysql://root:mysql@localhost:3306/bunsql
+            files: tests/driver-mariadb.test.ts tests/cycle-integration.test.ts
+          - name: mysql84
+            docker: 'docker run -d --name db -p 3306:3306 --health-cmd "mysqladmin ping -h 127.0.0.1 -uroot -pmysql --silent" --health-interval 5s --health-timeout 5s --health-retries 20 -e MYSQL_ROOT_PASSWORD=mysql -e MYSQL_DATABASE=bunsql -v "$PWD/docker/mysql84-init.sql:/docker-entrypoint-initdb.d/01-native-password.sql:ro" mysql:8.4 --mysql-native-password=ON'
+            url: mysql://root:mysql@localhost:3306/bunsql
+            files: tests/driver-mariadb.test.ts tests/cycle-integration.test.ts
+    env:
+      DATABASE_URL: ${{ matrix.url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - name: Start ${{ matrix.name }}
+        run: ${{ matrix.docker }}
+      - name: Wait for the database to become healthy
+        run: |
+          for i in $(seq 1 60); do
+            status=$(docker inspect -f '{{.State.Health.Status}}' db)
+            if [ "$status" = "healthy" ]; then exit 0; fi
+            sleep 2
+          done
+          docker logs db
+          exit 1
+      - name: Integration tests (${{ matrix.name }})
+        run: bun test ${{ matrix.files }}

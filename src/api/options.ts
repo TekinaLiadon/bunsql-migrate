@@ -3,23 +3,37 @@ import type { ExecutedMigration } from "../core/driver.js";
 export interface MigrateOptions {
   databaseUrl?: string;
   listDir?: string;
+  tableName?: string;
+  schema?: string;
 }
 
 export interface MigrateUpOptions extends MigrateOptions {
   to?: string;
   lockTimeout?: number;
+  dryRun?: boolean;
 }
 
 export interface MigrateDownOptions extends MigrateOptions {
   steps?: number | "all";
+  dryRun?: boolean;
+}
+
+export interface MarkOptions extends MigrateOptions {
+  to?: string;
 }
 
 export interface MigrateUpResult {
   applied: string[];
+  planned?: string[];
 }
 
 export interface MigrateDownResult {
   reverted: string[];
+  planned?: string[];
+}
+
+export interface MarkResult {
+  marked: string[];
 }
 
 export interface MigrateStatusResult {

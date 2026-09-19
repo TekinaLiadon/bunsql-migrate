@@ -122,4 +122,57 @@ describe("MigrationDriver — Postgres (integration)", () => {
       await second.close();
     }
   });
+
+  itWithPostgres("runs the driver cycle against a custom table in a custom schema", async () => {
+    const schema = `migrate_schema_${Date.now()}`;
+    const admin = new SQL(DATABASE_URL as string);
+    try {
+      await admin.unsafe(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
+      await admin.unsafe(`CREATE SCHEMA ${schema}`);
+    } finally {
+      admin.close({ timeout: 0 });
+    }
+
+    const driver = await createDriver(DATABASE_URL as string, {
+      tableName: "app_migrations",
+      schema,
+    });
+    try {
+      await driver.install();
+      await driver.install();
+
+      expect(await driver.listExecuted()).toEqual([]);
+
+      await driver.record("0001-schema", "checksum-1");
+      await driver.record("0001-schema", "checksum-duplicate");
+
+      const executed = await driver.listExecuted();
+      expect(executed).toEqual([{ name: "0001-schema", checksum: "checksum-1" }]);
+
+      await driver.setChecksum("0001-schema", "checksum-1b");
+      expect(await driver.listExecuted()).toEqual([
+        { name: "0001-schema", checksum: "checksum-1b" },
+      ]);
+
+      await driver.remove("0001-schema");
+      expect(await driver.listExecuted()).toEqual([]);
+    } finally {
+      await driver.close();
+    }
+
+    const probe = new SQL(DATABASE_URL as string);
+    try {
+      const inSchema = (await probe.unsafe(
+        `SELECT to_regclass('${schema}.app_migrations') IS NOT NULL AS exists`,
+      )) as Array<{ exists: boolean }>;
+      const inPublic = (await probe.unsafe(
+        `SELECT to_regclass('public.app_migrations') IS NOT NULL AS exists`,
+      )) as Array<{ exists: boolean }>;
+      expect(inSchema[0]?.exists).toBe(true);
+      expect(inPublic[0]?.exists).toBe(false);
+    } finally {
+      await probe.unsafe(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
+      probe.close({ timeout: 0 });
+    }
+  });
 });
