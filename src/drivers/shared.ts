@@ -11,6 +11,7 @@ export interface SqlDialect {
   install(db: SQL): Promise<void>;
   record(db: SQL, migration: string, checksum: string): Promise<void>;
   trackingTableExists?(db: SQL): Promise<boolean>;
+  trackingTableCurrent?(db: SQL): Promise<boolean>;
   createLock?(db: SQL): SqlLock;
 }
 
@@ -84,6 +85,9 @@ export function createSqlDriver(
     transaction: (run) => db.begin(run),
     ...(dialect.trackingTableExists
       ? { trackingTableExists: () => dialect.trackingTableExists!(db) }
+      : {}),
+    ...(dialect.trackingTableCurrent
+      ? { trackingTableCurrent: () => dialect.trackingTableCurrent!(db) }
       : {}),
     ...(lock
       ? {

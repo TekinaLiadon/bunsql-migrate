@@ -115,6 +115,17 @@ describe("bunsql-migrate CLI", () => {
     expect(unknown.output).toContain("Usage: bunsql-native-migrate");
   });
 
+  it("reports nothing to rollback and exits 0 on a fresh database", async () => {
+    const { dbPath, env } = makeScenario();
+    try {
+      const down = await runCli(["down"], env);
+      expect(down.exitCode).toBe(0);
+      expect(down.output).toContain("No migrations to rollback.");
+    } finally {
+      rmSync(path.dirname(dbPath), { recursive: true, force: true });
+    }
+  });
+
   it("stops at the first failing migration and exits with code 1", async () => {
     const { dbPath, listDir, env } = makeScenario();
     try {

@@ -3,13 +3,14 @@ import { checksumFile, listFiles, MIGRATION_EXTENSIONS, resolveListDir } from ".
 import { log } from "../core/console.js";
 import { type MarkOptions, type MarkResult, MigrationNotFoundError } from "./options.js";
 import { runWithDriver } from "./run-with-driver.js";
+import { ensureTrackingTable } from "./tracking-table.js";
 
 export async function markMigrationsApplied(options: MarkOptions = {}): Promise<MarkResult> {
   const listDir = resolveListDir(options.listDir);
   const target = options.to;
 
   return runWithDriver(options, async (driver) => {
-    await driver.install();
+    await ensureTrackingTable(driver);
 
     const allFiles = await listFiles(listDir, MIGRATION_EXTENSIONS);
     if (target !== undefined && !allFiles.includes(target)) {

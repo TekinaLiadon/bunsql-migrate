@@ -13,6 +13,7 @@ export interface MigrationDriver {
   remove(migration: string): Promise<void>;
   transaction<T>(run: (tx: SQL) => Promise<T>): Promise<T>;
   trackingTableExists?(): Promise<boolean>;
+  trackingTableCurrent?(): Promise<boolean>;
   tryLock?(timeoutSeconds: number): Promise<boolean>;
   releaseLock?(): Promise<void>;
   close(): Promise<void>;

@@ -63,6 +63,21 @@ export function create(databaseUrl: string, options: DriverTableOptions = {}): M
             AND table_name = ${name}`;
         return rows.length > 0;
       },
+      async trackingTableCurrent(db) {
+        const rows = (await db`SELECT EXISTS (
+            SELECT 1 FROM information_schema.tables
+            WHERE table_schema = DATABASE() AND table_name = ${name}
+          ) AND EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_schema = DATABASE() AND table_name = ${name} AND column_name = 'checksum'
+          ) AND EXISTS (
+            SELECT 1 FROM information_schema.statistics
+            WHERE table_schema = DATABASE() AND table_name = ${name}
+              AND index_name = ${`${name}${UNIQUE_INDEX_SUFFIX}`}
+          ) AS current`) as Array<{ current: number | boolean }>;
+        const current = rows[0]?.current;
+        return current === 1 || current === true;
+      },
       async record(db, migration, checksum) {
         await db`INSERT IGNORE INTO ${db.unsafe(table)} (migration, checksum)
           VALUES (${migration}, ${checksum})`;

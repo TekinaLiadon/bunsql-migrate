@@ -43,6 +43,16 @@ export function create(databaseUrl: string, options: DriverTableOptions = {}): M
         const rows = await db`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ${name}`;
         return rows.length > 0;
       },
+      async trackingTableCurrent(db) {
+        const columns = (await db.unsafe(`PRAGMA table_info(${table})`)) as Array<{
+          name: string;
+        }>;
+        if (!columns.some((column) => column.name === "checksum")) return false;
+        const indexName = `${name}${UNIQUE_INDEX_SUFFIX}`;
+        const indexes = (await db`SELECT 1 FROM sqlite_master WHERE type = 'index'
+          AND name = ${indexName}`) as Array<unknown>;
+        return indexes.length > 0;
+      },
       async record(db, migration, checksum) {
         await db`INSERT OR IGNORE INTO ${db.unsafe(table)} (migration, checksum)
           VALUES (${migration}, ${checksum})`;

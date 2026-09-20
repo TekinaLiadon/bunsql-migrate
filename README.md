@@ -261,7 +261,7 @@ Known MySQL/MariaDB limitation of `Bun.SQL` (not used by this package, good to k
 
 Bun's client also recognizes `mysql2://` and `file://` URLs — `createDriver` deliberately rejects them. Stick to the protocols listed above.
 
-`createDriver(url)` returns a `MigrationDriver` (`install`/`listExecuted`/`record`/`setChecksum`/`remove`/`close`) if you need custom tracking logic; `listExecuted` yields `ExecutedMigration` records (`name`, `checksum`). It also accepts the same `{ tableName, schema }` options as the API functions. Custom drivers may also implement the optional `tryLock(timeoutSeconds)` / `releaseLock()` pair to participate in [concurrent-run locking](#concurrent-runs) — without them, `migrateUp` simply runs unlocked — and the optional `trackingTableExists()` used by `up`'s [dry run](#dry-run) to plan against a database that has no tracking table yet.
+`createDriver(url)` returns a `MigrationDriver` (`install`/`listExecuted`/`record`/`setChecksum`/`remove`/`close`) if you need custom tracking logic; `listExecuted` yields `ExecutedMigration` records (`name`, `checksum`). It also accepts the same `{ tableName, schema }` options as the API functions. Custom drivers may also implement the optional `tryLock(timeoutSeconds)` / `releaseLock()` pair to participate in [concurrent-run locking](#concurrent-runs) — without them, `migrateUp` simply runs unlocked — the optional `trackingTableExists()` used by `up`'s [dry run](#dry-run) to plan against a database that has no tracking table yet, and the optional `trackingTableCurrent()` probe that lets `up`/`down`/`status`/`mark` skip re-running `install()` when the tracking table already has its checksum column and unique index — without the probe, those commands install the table up front as before.
 
 ### Tracking table
 
@@ -309,7 +309,7 @@ Would apply 2 migration(s).
 
 - Nothing is executed and nothing is recorded — not even the tracking table is created, so it is safe against any database, production included. A database without the table simply plans everything as pending.
 - The plan honors every option the real run would: `to`, `steps`, `--table`/`--schema`. The checksum drift check runs too — a dry run reports `ChecksumDriftError` exactly where the real run would fail (the legacy NULL-checksum backfill is the one write it skips).
-- `down --dry-run` plans the revert list in reverse apply order; on an empty history it prints `No migrations to rollback.` like the real command.
+- `down --dry-run` plans the revert list in reverse apply order; on an empty history — a database that has never seen an `up`, included — it prints `No migrations to rollback.` like the real command. A real `down` creates the tracking table when it is missing, so it degrades to the same message instead of a driver error.
 - In the API result the plan lands in `planned: string[]` while `applied`/`reverted` stay empty — existing consumers keep working untouched.
 
 ### Concurrent runs

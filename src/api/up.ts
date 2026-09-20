@@ -2,7 +2,6 @@ import path from "node:path";
 import { checksumFile, listFiles, MIGRATION_EXTENSIONS, resolveListDir } from "../core/fs.js";
 import { log } from "../core/console.js";
 import { formatDuration } from "../core/duration.js";
-import type { ExecutedMigration, MigrationDriver } from "../core/driver.js";
 import {
   type MigrateUpOptions,
   type MigrateUpResult,
@@ -13,13 +12,7 @@ import { runWithDriver } from "./run-with-driver.js";
 import { runMigrationStep } from "./run-step.js";
 import { loadMigration } from "./load-migration.js";
 import { resolveLockTimeout, withMigrationLock } from "./lock.js";
-
-async function listExecutedForPlan(driver: MigrationDriver): Promise<ExecutedMigration[]> {
-  if ((await driver.trackingTableExists?.()) === false) {
-    return [];
-  }
-  return driver.listExecuted();
-}
+import { ensureTrackingTable, listExecutedForPlan } from "./tracking-table.js";
 
 export async function migrateUp(options: MigrateUpOptions = {}): Promise<MigrateUpResult> {
   const listDir = resolveListDir(options.listDir);
@@ -29,7 +22,7 @@ export async function migrateUp(options: MigrateUpOptions = {}): Promise<Migrate
 
   return runWithDriver(options, async (driver) => {
     if (!dryRun) {
-      await driver.install();
+      await ensureTrackingTable(driver);
     }
 
     const run = async (): Promise<MigrateUpResult> => {

@@ -6,6 +6,7 @@ import type { MigrateDownOptions, MigrateDownResult } from "./options.js";
 import { runWithDriver } from "./run-with-driver.js";
 import { runMigrationStep } from "./run-step.js";
 import { isSqlMigration, loadMigration } from "./load-migration.js";
+import { ensureTrackingTable, listExecutedForPlan } from "./tracking-table.js";
 
 function resolveStepCount(steps: number | "all" | undefined, appliedCount: number): number {
   if (steps === undefined) return 1;
@@ -37,7 +38,11 @@ export async function migrateDown(options: MigrateDownOptions = {}): Promise<Mig
   const dryRun = options.dryRun ?? false;
 
   return runWithDriver(options, async (driver) => {
-    const executed = await driver.listExecuted();
+    if (!dryRun) {
+      await ensureTrackingTable(driver);
+    }
+
+    const executed = dryRun ? await listExecutedForPlan(driver) : await driver.listExecuted();
     if (executed.length === 0) {
       log({ text: "No migrations to rollback.", type: "warn" });
       return dryRun ? { reverted: [], planned: [] } : { reverted: [] };

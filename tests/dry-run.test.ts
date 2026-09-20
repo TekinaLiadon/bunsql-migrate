@@ -208,6 +208,21 @@ describe("migrateDown dryRun", () => {
       scenario.cleanup();
     }
   });
+
+  it("plans nothing on a database without the tracking table", async () => {
+    const scenario = makeScenario();
+    try {
+      writeMigration(scenario.listDir, "1_a.js", "a_table");
+
+      const result = await migrateDown({ ...scenario.options, dryRun: true });
+
+      expect(result.reverted).toEqual([]);
+      expect(result.planned).toEqual([]);
+      expect(readTables(scenario.dbPath)).toEqual([]);
+    } finally {
+      scenario.cleanup();
+    }
+  });
 });
 
 describe("CLI --dry-run", () => {

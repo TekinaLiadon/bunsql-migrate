@@ -305,6 +305,22 @@ export { up, down };
     const result = await migrateDown(options);
     expect(result.reverted).toEqual([]);
   });
+
+  it("returns an empty list on a database without the tracking table", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "bunsql-api-fresh-"));
+    try {
+      const freshDbPath = path.join(dir, "fresh.sqlite");
+
+      const result = await migrateDown({
+        ...options,
+        databaseUrl: `sqlite:${freshDbPath}`,
+      });
+
+      expect(result.reverted).toEqual([]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("transactional migrations (up(tx) / down(tx))", () => {

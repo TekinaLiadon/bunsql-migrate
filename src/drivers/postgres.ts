@@ -59,6 +59,18 @@ export function create(databaseUrl: string, options: DriverTableOptions = {}): M
               WHERE table_schema = current_schema() AND table_name = ${name}`;
         return rows.length > 0;
       },
+      async trackingTableCurrent(db) {
+        const rows = (await db`SELECT EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_schema = COALESCE(${schemaName ?? null}, current_schema())
+              AND table_name = ${name} AND column_name = 'checksum'
+          ) AND EXISTS (
+            SELECT 1 FROM pg_indexes
+            WHERE schemaname = COALESCE(${schemaName ?? null}, current_schema())
+              AND indexname = ${`${name}${UNIQUE_INDEX_SUFFIX}`}
+          ) AS "current"`) as Array<{ current: boolean }>;
+        return rows[0]?.current === true;
+      },
       async record(db, migration, checksum) {
         await db`INSERT INTO ${db.unsafe(table)} (migration, checksum)
           VALUES (${migration}, ${checksum})
