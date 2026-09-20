@@ -1,11 +1,12 @@
 #!/usr/bin/env bun
 import { migrateUp } from "../api/up.js";
-import { migrateDown } from "../api/down.js";
+import { migrateDown, parseSteps } from "../api/down.js";
 import { migrateStatus } from "../api/status.js";
 import { installMigrations } from "../api/install.js";
 import { createMigrationCommand, type MigrationLang } from "../api/create.js";
 import { initMigrations } from "../api/init.js";
 import { markMigrationsApplied } from "../api/mark.js";
+import { resolveLockTimeout } from "../api/lock.js";
 import { ChecksumDriftError, MigrationLockError, MigrationNotFoundError } from "../api/options.js";
 import { InvalidIdentifierError } from "../core/identifiers.js";
 import { log } from "../core/console.js";
@@ -63,15 +64,15 @@ function parseArgs(argv: string[]): CliArgs {
       }
     } else if (arg === "--lock-timeout") {
       const value = argv[++i];
-      const parsed = Number(value);
-      if (value === undefined || !Number.isInteger(parsed) || parsed < 0) {
+      try {
+        lockTimeout = resolveLockTimeout(Number(value));
+      } catch {
         log({
           text: `Invalid --lock-timeout: ${value ?? "(missing)"} (expected a non-negative integer of seconds)`,
           type: "error",
         });
         usage(1);
       }
-      lockTimeout = parsed;
     } else if (arg === "--table") {
       table = argv[++i];
       if (table === undefined) {
@@ -160,15 +161,15 @@ try {
       if (args.all) {
         steps = "all";
       } else if (stepsArg !== undefined) {
-        const parsed = Number(stepsArg);
-        if (!Number.isInteger(parsed) || parsed < 1) {
+        try {
+          steps = parseSteps(Number(stepsArg));
+        } catch {
           log({
             text: `Invalid step count: ${stepsArg} (expected a positive integer)`,
             type: "error",
           });
           usage(1);
         }
-        steps = parsed;
       }
       const { reverted, planned } = await migrateDown({
         ...listDirOptions,

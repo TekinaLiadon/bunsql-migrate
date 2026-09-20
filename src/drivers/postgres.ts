@@ -1,32 +1,34 @@
 import { type SQL } from "bun";
 import type { DriverTableOptions, MigrationDriver } from "../core/driver.js";
 import { doubleQuoted, validateIdentifier } from "../core/identifiers.js";
-import { createReservedLock, createSqlDriver } from "./shared.js";
+import {
+  createReservedLock,
+  createSqlDriver,
+  resolveTableRef,
+  UNIQUE_INDEX_SUFFIX,
+  type TableRef,
+} from "./shared.js";
 
 const LOCK_SCOPE = "bunsql-native-migrate:up";
 
 const IDENTIFIER_MAX_LENGTH = 63;
-const UNIQUE_INDEX_SUFFIX = "_migration_unique";
 
-interface TableRef {
-  table: string;
-  index: string;
-  name: string;
+interface PostgresTableRef extends TableRef {
   schemaName?: string;
 }
 
-function resolveTableRef(options: DriverTableOptions): TableRef {
-  const tableName = options.tableName ?? "migrations";
-  validateIdentifier("table", tableName, IDENTIFIER_MAX_LENGTH);
-  const index = doubleQuoted(`${tableName}${UNIQUE_INDEX_SUFFIX}`);
+function resolvePostgresTableRef(options: DriverTableOptions): PostgresTableRef {
+  const base = resolveTableRef(options, {
+    quote: doubleQuoted,
+    maxLength: IDENTIFIER_MAX_LENGTH,
+  });
   if (options.schema === undefined) {
-    return { table: doubleQuoted(tableName), index, name: tableName };
+    return base;
   }
   validateIdentifier("schema", options.schema, IDENTIFIER_MAX_LENGTH);
   return {
-    table: `${doubleQuoted(options.schema)}.${doubleQuoted(tableName)}`,
-    index,
-    name: tableName,
+    ...base,
+    table: `${doubleQuoted(options.schema)}.${base.table}`,
     schemaName: options.schema,
   };
 }
@@ -38,7 +40,7 @@ async function advisoryKeyComponents(lock: SQL): Promise<[number, number]> {
 }
 
 export function create(databaseUrl: string, options: DriverTableOptions = {}): MigrationDriver {
-  const { table, index, name, schemaName } = resolveTableRef(options);
+  const { table, index, name, schemaName } = resolvePostgresTableRef(options);
   return createSqlDriver(
     databaseUrl,
     {
@@ -76,11 +78,18 @@ export function create(databaseUrl: string, options: DriverTableOptions = {}): M
           VALUES (${migration}, ${checksum})
           ON CONFLICT (migration) DO NOTHING`;
       },
-      createLock: (db) =>
-        createReservedLock(
+      createLock: (db) => {
+        let cachedKey: [number, number] | null = null;
+        const resolveAdvisoryKey = async (lock: SQL): Promise<[number, number]> => {
+          if (cachedKey === null) {
+            cachedKey = await advisoryKeyComponents(lock);
+          }
+          return cachedKey;
+        };
+        return createReservedLock(
           db,
           async (lock) => {
-            const [first, second] = await advisoryKeyComponents(lock);
+            const [first, second] = await resolveAdvisoryKey(lock);
             const rows =
               (await lock`SELECT pg_try_advisory_lock(${first}, ${second}) AS locked`) as Array<{
                 locked: boolean;
@@ -88,10 +97,11 @@ export function create(databaseUrl: string, options: DriverTableOptions = {}): M
             return rows[0]?.locked === true;
           },
           async (lock) => {
-            const [first, second] = await advisoryKeyComponents(lock);
+            const [first, second] = await resolveAdvisoryKey(lock);
             await lock`SELECT pg_advisory_unlock(${first}, ${second})`;
           },
-        ),
+        );
+      },
     },
     table,
   );

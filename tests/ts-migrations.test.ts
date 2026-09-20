@@ -1,29 +1,8 @@
 import { describe, it, expect } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync } from "node:fs";
 import path from "node:path";
-import { Database } from "bun:sqlite";
 import { migrateUp, migrateDown, createMigration, ChecksumDriftError } from "../src/index.js";
-
-interface MigrationScenario {
-  options: { databaseUrl: string; listDir: string };
-  dbPath: string;
-  listDir: string;
-  cleanup(): void;
-}
-
-function makeScenario(): MigrationScenario {
-  const dir = mkdtempSync(path.join(tmpdir(), "bunsql-ts-"));
-  const dbPath = path.join(dir, "migrate.db");
-  const listDir = path.join(dir, "list");
-  mkdirSync(listDir, { recursive: true });
-  return {
-    options: { databaseUrl: `sqlite:${dbPath}`, listDir },
-    dbPath,
-    listDir,
-    cleanup: () => rmSync(dir, { recursive: true, force: true }),
-  };
-}
+import { makeScenario, readRecorded, readTables } from "./helpers.js";
 
 function writeMigration(listDir: string, file: string, upBody: string, downBody = ""): void {
   writeFileSync(
@@ -39,33 +18,9 @@ export { up, down };
   );
 }
 
-function readTables(dbPath: string): string[] {
-  const db = new Database(dbPath);
-  try {
-    return db
-      .query<{ name: string }, []>("SELECT name FROM sqlite_master WHERE type = 'table'")
-      .all()
-      .map((row) => row.name);
-  } finally {
-    db.close();
-  }
-}
-
-function readRecorded(dbPath: string): string[] {
-  const db = new Database(dbPath);
-  try {
-    return db
-      .query<{ migration: string }, []>("SELECT migration FROM migrations ORDER BY id ASC")
-      .all()
-      .map((row) => row.migration);
-  } finally {
-    db.close();
-  }
-}
-
 describe("TypeScript migration files", () => {
   it("applies .js and .ts migrations interleaved in pure filename order", async () => {
-    const scenario = makeScenario();
+    const scenario = makeScenario("bunsql-ts-");
     try {
       writeMigration(
         scenario.listDir,
@@ -96,7 +51,7 @@ describe("TypeScript migration files", () => {
   });
 
   it("detects checksum drift on a modified .ts migration", async () => {
-    const scenario = makeScenario();
+    const scenario = makeScenario("bunsql-ts-");
     try {
       writeMigration(
         scenario.listDir,
@@ -114,7 +69,7 @@ describe("TypeScript migration files", () => {
   });
 
   it("rolls a .ts migration back with down()", async () => {
-    const scenario = makeScenario();
+    const scenario = makeScenario("bunsql-ts-");
     try {
       writeMigration(
         scenario.listDir,
@@ -135,7 +90,7 @@ describe("TypeScript migration files", () => {
   });
 
   it("createMigration generates a runnable .ts stub by default", async () => {
-    const scenario = makeScenario();
+    const scenario = makeScenario("bunsql-ts-");
     try {
       const filename = await createMigration({ name: "stub_run", listDir: scenario.listDir });
 
@@ -155,7 +110,7 @@ describe("TypeScript migration files", () => {
   });
 
   it('createMigration generates a runnable .js stub with lang: "js"', async () => {
-    const scenario = makeScenario();
+    const scenario = makeScenario("bunsql-ts-");
     try {
       const filename = await createMigration({
         name: "js_run",

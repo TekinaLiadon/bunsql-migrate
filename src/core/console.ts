@@ -13,32 +13,32 @@ interface LogOptions {
   error?: unknown;
 }
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
-function formatError(error: any): void {
+function formatError(error: unknown): void {
   if (error instanceof Error) {
     console.log(error.message);
     if (error.stack) console.log(error.stack);
     return;
   }
-  if (typeof error === "object" && error !== null) {
-    if ("code" in error && "detail" in error) {
-      console.table(error);
-      return;
-    }
-    if ("code" in error && "errno" in error) {
-      console.log(error.code);
-      console.log(error.errno);
-      if ("byteOffset" in error) console.log(error.byteOffset);
-      return;
-    }
-    if ("message" in error) {
-      console.log(error.message);
-      return;
-    }
+  if (typeof error !== "object" || error === null) {
+    console.log(String(error));
+    return;
+  }
+  if ("code" in error && "detail" in error) {
+    console.table(error);
+    return;
+  }
+  if ("code" in error && "errno" in error) {
+    console.log(error.code);
+    console.log(error.errno);
+    if ("byteOffset" in error) console.log(error.byteOffset);
+    return;
+  }
+  if ("message" in error) {
+    console.log(error.message);
+    return;
   }
   console.log(String(error));
 }
-/* eslint-enable @typescript-eslint/no-explicit-any */
 
 export function log({ text, type, error = null }: LogOptions): void {
   console.log(colors[type], text);

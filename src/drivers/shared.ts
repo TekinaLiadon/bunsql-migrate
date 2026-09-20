@@ -1,5 +1,29 @@
 import { SQL, type ReservedSQL } from "bun";
-import type { ExecutedMigration, MigrationDriver } from "../core/driver.js";
+import type { DriverTableOptions, ExecutedMigration, MigrationDriver } from "../core/driver.js";
+import { validateIdentifier } from "../core/identifiers.js";
+
+export const UNIQUE_INDEX_SUFFIX = "_migration_unique";
+
+export interface TableRef {
+  table: string;
+  index: string;
+  name: string;
+}
+
+interface TableRefSpec {
+  quote: (identifier: string) => string;
+  maxLength: number;
+}
+
+export function resolveTableRef(options: DriverTableOptions, spec: TableRefSpec): TableRef {
+  const tableName = options.tableName ?? "migrations";
+  validateIdentifier("table", tableName, spec.maxLength);
+  return {
+    table: spec.quote(tableName),
+    index: spec.quote(`${tableName}${UNIQUE_INDEX_SUFFIX}`),
+    name: tableName,
+  };
+}
 
 export interface SqlLock {
   tryLock(timeoutSeconds: number): Promise<boolean>;

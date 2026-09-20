@@ -2,15 +2,11 @@ import path from "node:path";
 import { checksumFile, listFiles, MIGRATION_EXTENSIONS, resolveListDir } from "../core/fs.js";
 import { log } from "../core/console.js";
 import { formatDuration } from "../core/duration.js";
-import {
-  type MigrateUpOptions,
-  type MigrateUpResult,
-  ChecksumDriftError,
-  MigrationNotFoundError,
-} from "./options.js";
+import { type MigrateUpOptions, type MigrateUpResult, ChecksumDriftError } from "./options.js";
 import { runWithDriver } from "./run-with-driver.js";
 import { runMigrationStep } from "./run-step.js";
 import { loadMigration } from "./load-migration.js";
+import { resolvePendingToTarget } from "./pending.js";
 import { resolveLockTimeout, withMigrationLock } from "./lock.js";
 import { ensureTrackingTable, listExecutedForPlan } from "./tracking-table.js";
 
@@ -27,9 +23,6 @@ export async function migrateUp(options: MigrateUpOptions = {}): Promise<Migrate
 
     const run = async (): Promise<MigrateUpResult> => {
       const allFiles = await listFiles(listDir, MIGRATION_EXTENSIONS);
-      if (target !== undefined && !allFiles.includes(target)) {
-        throw new MigrationNotFoundError(target);
-      }
 
       const checksums = new Map(
         await Promise.all(
@@ -59,13 +52,13 @@ export async function migrateUp(options: MigrateUpOptions = {}): Promise<Migrate
         }
       }
 
-      let pending = allFiles.filter((file) => !executedByName.has(file));
-      if (target !== undefined) {
-        if (executedByName.has(target)) {
-          log({ text: `${target} is already applied.`, type: "info" });
-          return dryRun ? { applied: [], planned: [] } : { applied: [] };
-        }
-        pending = pending.slice(0, pending.indexOf(target) + 1);
+      const { pending, targetApplied } = resolvePendingToTarget({
+        allFiles,
+        executedNames: executed.map((entry) => entry.name),
+        target,
+      });
+      if (targetApplied) {
+        return dryRun ? { applied: [], planned: [] } : { applied: [] };
       }
 
       if (dryRun) {

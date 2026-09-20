@@ -1,29 +1,8 @@
 import { describe, it, expect } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync } from "node:fs";
 import path from "node:path";
-import { Database } from "bun:sqlite";
 import { migrateUp, migrateDown, migrateStatus } from "../src/index.js";
-
-interface StatusScenario {
-  options: { databaseUrl: string; listDir: string };
-  dbPath: string;
-  listDir: string;
-  cleanup(): void;
-}
-
-function makeScenario(): StatusScenario {
-  const dir = mkdtempSync(path.join(tmpdir(), "bunsql-status-"));
-  const dbPath = path.join(dir, "status.db");
-  const listDir = path.join(dir, "list");
-  mkdirSync(listDir, { recursive: true });
-  return {
-    options: { databaseUrl: `sqlite:${dbPath}`, listDir },
-    dbPath,
-    listDir,
-    cleanup: () => rmSync(dir, { recursive: true, force: true }),
-  };
-}
+import { makeScenario, readTables } from "./helpers.js";
 
 function writeMigration(listDir: string, file: string, upBody: string): void {
   writeFileSync(
@@ -37,21 +16,9 @@ export { up, down };
   );
 }
 
-function readTables(dbPath: string): string[] {
-  const db = new Database(dbPath);
-  try {
-    return db
-      .query<{ name: string }, []>("SELECT name FROM sqlite_master WHERE type = 'table'")
-      .all()
-      .map((row) => row.name);
-  } finally {
-    db.close();
-  }
-}
-
 describe("migrateStatus()", () => {
   it("reports an empty status on a fresh database and creates the tracking table", async () => {
-    const scenario = makeScenario();
+    const scenario = makeScenario("bunsql-status-", "status.db");
     try {
       const status = await migrateStatus(scenario.options);
 
@@ -64,7 +31,7 @@ describe("migrateStatus()", () => {
   });
 
   it("splits applied and pending after a partial apply", async () => {
-    const scenario = makeScenario();
+    const scenario = makeScenario("bunsql-status-", "status.db");
     try {
       writeMigration(
         scenario.listDir,
@@ -90,7 +57,7 @@ describe("migrateStatus()", () => {
   });
 
   it("reports nothing pending when every file is applied", async () => {
-    const scenario = makeScenario();
+    const scenario = makeScenario("bunsql-status-", "status.db");
     try {
       writeMigration(
         scenario.listDir,
@@ -114,7 +81,7 @@ describe("migrateStatus()", () => {
   });
 
   it("returns a migration to pending after down", async () => {
-    const scenario = makeScenario();
+    const scenario = makeScenario("bunsql-status-", "status.db");
     try {
       writeMigration(
         scenario.listDir,
@@ -139,7 +106,7 @@ describe("migrateStatus()", () => {
   });
 
   it("lists pending files in application order (descending filename)", async () => {
-    const scenario = makeScenario();
+    const scenario = makeScenario("bunsql-status-", "status.db");
     try {
       writeMigration(
         scenario.listDir,

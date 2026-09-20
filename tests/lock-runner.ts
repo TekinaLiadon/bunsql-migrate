@@ -21,8 +21,9 @@ interface WorkerResult {
   output: string;
 }
 
-function spawnWorker(args: string[]) {
+function spawnWorker(args: string[], stdin: "ignore" | "pipe" = "ignore") {
   return Bun.spawn(["bun", worker, ...args], {
+    stdin,
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -118,13 +119,15 @@ try {
     throw new Error(`migration body did not run exactly once, table has ${appliedRows} rows`);
   }
 
-  const holder = spawnWorker(["--dir", listDir, "--hold", "2500"]);
+  const holder = spawnWorker(["--dir", listDir, "--hold", "15000"], "pipe");
   await readUntilMarker(holder, "LOCK-HELD", 20000);
 
   const fast = await collect(spawnWorker(["--dir", listDir, "--lock-timeout", "0"]));
   if (fast.code !== 1 || !fast.output.includes("LOCK-BUSY")) {
     throw new Error(`fast-fail up did not fail with the lock error: ${JSON.stringify(fast)}`);
   }
+
+  holder.stdin?.end();
 
   const waiter = await collect(spawnWorker(["--dir", listDir, "--delay", "0"]));
   if (waiter.code !== 0) {

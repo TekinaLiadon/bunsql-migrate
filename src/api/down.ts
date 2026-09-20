@@ -8,13 +8,18 @@ import { runMigrationStep } from "./run-step.js";
 import { isSqlMigration, loadMigration } from "./load-migration.js";
 import { ensureTrackingTable, listExecutedForPlan } from "./tracking-table.js";
 
-function resolveStepCount(steps: number | "all" | undefined, appliedCount: number): number {
+export function parseSteps(steps: number | "all" | undefined): number | "all" {
   if (steps === undefined) return 1;
-  if (steps === "all") return appliedCount;
+  if (steps === "all") return "all";
   if (!Number.isInteger(steps) || steps < 1) {
     throw new Error(`Invalid steps: ${String(steps)} — expected a positive integer or "all"`);
   }
   return steps;
+}
+
+function resolveStepCount(steps: number | "all" | undefined, appliedCount: number): number {
+  const parsed = parseSteps(steps);
+  return parsed === "all" ? appliedCount : parsed;
 }
 
 async function revertOne(driver: MigrationDriver, listDir: string, file: string): Promise<void> {
@@ -49,10 +54,8 @@ export async function migrateDown(options: MigrateDownOptions = {}): Promise<Mig
     }
 
     const count = resolveStepCount(options.steps, executed.length);
-    const plan = executed
-      .slice(-count)
-      .reverse()
-      .map((entry) => entry.name);
+    const revertList = executed.slice(-count).reverse();
+    const plan = revertList.map((entry) => entry.name);
 
     if (dryRun) {
       log({ text: "Dry run — no changes will be made.", type: "info" });
@@ -64,7 +67,7 @@ export async function migrateDown(options: MigrateDownOptions = {}): Promise<Mig
 
     const reverted: string[] = [];
 
-    for (const entry of executed.slice(-count).reverse()) {
+    for (const entry of revertList) {
       try {
         await revertOne(driver, listDir, entry.name);
       } catch (error) {

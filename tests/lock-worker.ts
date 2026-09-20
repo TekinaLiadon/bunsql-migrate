@@ -32,7 +32,11 @@ function parseArgs(argv: string[]): WorkerArgs {
   };
 }
 
-async function holdLock(driver: MigrationDriver, holdMs: number): Promise<never> {
+function stdinClosed(): Promise<void> {
+  return new Response(Bun.stdin).text().then(() => undefined);
+}
+
+async function holdLock(driver: MigrationDriver, capMs: number): Promise<never> {
   await driver.install();
   const { tryLock, releaseLock } = driver;
   if (tryLock === undefined || releaseLock === undefined) {
@@ -44,7 +48,7 @@ async function holdLock(driver: MigrationDriver, holdMs: number): Promise<never>
     process.exit(1);
   }
   process.stdout.write("LOCK-HELD\n");
-  await Bun.sleep(holdMs);
+  await Promise.race([stdinClosed(), Bun.sleep(capMs)]);
   await releaseLock();
   await driver.close();
   process.exit(0);
@@ -60,7 +64,6 @@ if (args.holdMs !== undefined) {
   const driver = await createDriver(url);
   await holdLock(driver, args.holdMs);
 }
-
 if (args.delay > 0) {
   await Bun.sleep(args.delay);
 }

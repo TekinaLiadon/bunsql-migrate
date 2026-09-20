@@ -1,29 +1,9 @@
 import { describe, it, expect } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync } from "node:fs";
 import path from "node:path";
 import { Database } from "bun:sqlite";
 import { migrateUp, migrateDown, ChecksumDriftError } from "../src/index.js";
-
-interface DryRunScenario {
-  options: { databaseUrl: string; listDir: string };
-  dbPath: string;
-  listDir: string;
-  cleanup(): void;
-}
-
-function makeScenario(): DryRunScenario {
-  const dir = mkdtempSync(path.join(tmpdir(), "bunsql-dryrun-"));
-  const dbPath = path.join(dir, "migrate.db");
-  const listDir = path.join(dir, "list");
-  mkdirSync(listDir, { recursive: true });
-  return {
-    options: { databaseUrl: `sqlite:${dbPath}`, listDir },
-    dbPath,
-    listDir,
-    cleanup: () => rmSync(dir, { recursive: true, force: true }),
-  };
-}
+import { makeScenario, readRecorded, readRecords, readTables } from "./helpers.js";
 
 function writeMigration(listDir: string, file: string, table: string): void {
   writeFileSync(
@@ -39,45 +19,9 @@ export { up, down };
   );
 }
 
-function readTables(dbPath: string): string[] {
-  const db = new Database(dbPath);
-  try {
-    return db
-      .query<{ name: string }, []>("SELECT name FROM sqlite_master WHERE type = 'table'")
-      .all()
-      .map((row) => row.name);
-  } finally {
-    db.close();
-  }
-}
-
-function readRecorded(dbPath: string): string[] {
-  const db = new Database(dbPath);
-  try {
-    return db
-      .query<{ migration: string }, []>("SELECT migration FROM migrations ORDER BY id ASC")
-      .all()
-      .map((row) => row.migration);
-  } finally {
-    db.close();
-  }
-}
-
-function readChecksums(dbPath: string): (string | null)[] {
-  const db = new Database(dbPath);
-  try {
-    return db
-      .query<{ checksum: string | null }, []>("SELECT checksum FROM migrations ORDER BY id ASC")
-      .all()
-      .map((row) => row.checksum);
-  } finally {
-    db.close();
-  }
-}
-
 describe("migrateUp dryRun", () => {
   it("plans every pending migration on a fresh database and creates nothing", async () => {
-    const scenario = makeScenario();
+    const scenario = makeScenario("bunsql-dryrun-");
     try {
       writeMigration(scenario.listDir, "1_a.js", "a_table");
       writeMigration(scenario.listDir, "2_b.js", "b_table");
@@ -94,7 +38,7 @@ describe("migrateUp dryRun", () => {
   });
 
   it("plans only pending migrations and leaves records untouched", async () => {
-    const scenario = makeScenario();
+    const scenario = makeScenario("bunsql-dryrun-");
     try {
       writeMigration(scenario.listDir, "1_a.js", "a_table");
       writeMigration(scenario.listDir, "2_b.js", "b_table");
@@ -114,7 +58,7 @@ describe("migrateUp dryRun", () => {
   });
 
   it("respects to in the plan", async () => {
-    const scenario = makeScenario();
+    const scenario = makeScenario("bunsql-dryrun-");
     try {
       writeMigration(scenario.listDir, "1_a.js", "a_table");
       writeMigration(scenario.listDir, "2_b.js", "b_table");
@@ -128,7 +72,7 @@ describe("migrateUp dryRun", () => {
   });
 
   it("still throws ChecksumDriftError for a modified applied file", async () => {
-    const scenario = makeScenario();
+    const scenario = makeScenario("bunsql-dryrun-");
     try {
       writeMigration(scenario.listDir, "1_drift.js", "drift_table");
       await migrateUp(scenario.options);
@@ -144,7 +88,7 @@ describe("migrateUp dryRun", () => {
   });
 
   it("skips the legacy NULL-checksum backfill", async () => {
-    const scenario = makeScenario();
+    const scenario = makeScenario("bunsql-dryrun-");
     try {
       writeMigration(scenario.listDir, "1_legacy.js", "legacy_table");
       await migrateUp(scenario.options);
@@ -159,7 +103,7 @@ describe("migrateUp dryRun", () => {
 
       expect(result.applied).toEqual([]);
       expect(result.planned).toEqual([]);
-      expect(readChecksums(scenario.dbPath)).toEqual([null]);
+      expect(readRecords(scenario.dbPath).map((record) => record.checksum)).toEqual([null]);
     } finally {
       scenario.cleanup();
     }
@@ -168,7 +112,7 @@ describe("migrateUp dryRun", () => {
 
 describe("migrateDown dryRun", () => {
   it("plans the revert list without rolling anything back", async () => {
-    const scenario = makeScenario();
+    const scenario = makeScenario("bunsql-dryrun-");
     try {
       writeMigration(scenario.listDir, "1_a.js", "a_table");
       writeMigration(scenario.listDir, "2_b.js", "b_table");
@@ -194,7 +138,7 @@ describe("migrateDown dryRun", () => {
   });
 
   it("plans nothing when the history is empty", async () => {
-    const scenario = makeScenario();
+    const scenario = makeScenario("bunsql-dryrun-");
     try {
       writeMigration(scenario.listDir, "1_a.js", "a_table");
       await migrateUp(scenario.options);
@@ -210,7 +154,7 @@ describe("migrateDown dryRun", () => {
   });
 
   it("plans nothing on a database without the tracking table", async () => {
-    const scenario = makeScenario();
+    const scenario = makeScenario("bunsql-dryrun-");
     try {
       writeMigration(scenario.listDir, "1_a.js", "a_table");
 
@@ -227,7 +171,7 @@ describe("migrateDown dryRun", () => {
 
 describe("CLI --dry-run", () => {
   it("prints the plan and leaves the database unchanged", async () => {
-    const scenario = makeScenario();
+    const scenario = makeScenario("bunsql-dryrun-");
     try {
       writeMigration(scenario.listDir, "1_cli.js", "cli_table");
       writeMigration(scenario.listDir, "2_cli.js", "cli_table_2");

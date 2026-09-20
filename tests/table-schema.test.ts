@@ -1,6 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { Database } from "bun:sqlite";
 import {
@@ -11,28 +10,7 @@ import {
   createDriver,
   InvalidIdentifierError,
 } from "../src/index.js";
-
-interface TableScenario {
-  options: { databaseUrl: string; listDir: string };
-  dir: string;
-  dbPath: string;
-  listDir: string;
-  cleanup(): void;
-}
-
-function makeScenario(): TableScenario {
-  const dir = mkdtempSync(path.join(tmpdir(), "bunsql-table-"));
-  const dbPath = path.join(dir, "migrate.db");
-  const listDir = path.join(dir, "list");
-  mkdirSync(listDir, { recursive: true });
-  return {
-    options: { databaseUrl: `sqlite:${dbPath}`, listDir },
-    dir,
-    dbPath,
-    listDir,
-    cleanup: () => rmSync(dir, { recursive: true, force: true }),
-  };
-}
+import { makeScenario, readRecorded, readTables } from "./helpers.js";
 
 function writeMigration(listDir: string, file: string, table: string): void {
   writeFileSync(
@@ -48,33 +26,9 @@ export { up, down };
   );
 }
 
-function readTables(dbPath: string): string[] {
-  const db = new Database(dbPath);
-  try {
-    return db
-      .query<{ name: string }, []>("SELECT name FROM sqlite_master WHERE type = 'table'")
-      .all()
-      .map((row) => row.name);
-  } finally {
-    db.close();
-  }
-}
-
-function readRecorded(dbPath: string, table: string): string[] {
-  const db = new Database(dbPath);
-  try {
-    return db
-      .query<{ migration: string }, []>(`SELECT migration FROM ${table} ORDER BY id ASC`)
-      .all()
-      .map((row) => row.migration);
-  } finally {
-    db.close();
-  }
-}
-
 describe("custom tracking table", () => {
   it("runs the full cycle against a custom tableName without creating the default table", async () => {
-    const scenario = makeScenario();
+    const scenario = makeScenario("bunsql-table-");
     try {
       writeMigration(scenario.listDir, "1_custom.js", "custom_data_table");
       const options = { ...scenario.options, tableName: "app_migrations" };
@@ -101,7 +55,7 @@ describe("custom tracking table", () => {
   });
 
   it("keeps two custom tables in one database as separate histories", async () => {
-    const scenario = makeScenario();
+    const scenario = makeScenario("bunsql-table-");
     try {
       const alphaDir = path.join(scenario.dir, "alpha");
       const betaDir = path.join(scenario.dir, "beta");
@@ -140,7 +94,7 @@ describe("custom tracking table", () => {
   });
 
   it("quotes a table name that is a SQL keyword", async () => {
-    const scenario = makeScenario();
+    const scenario = makeScenario("bunsql-table-");
     try {
       writeMigration(scenario.listDir, "1_order.js", "ordered_table");
 
@@ -158,7 +112,7 @@ describe("custom tracking table", () => {
   });
 
   it("backfills a legacy record inside a custom table on up", async () => {
-    const scenario = makeScenario();
+    const scenario = makeScenario("bunsql-table-");
     try {
       writeMigration(scenario.listDir, "1_legacy.js", "legacy_table");
       await migrateUp({
@@ -200,7 +154,7 @@ describe("custom tracking table", () => {
 
 describe("identifier validation", () => {
   it("rejects invalid table names with a domain error before touching the database", async () => {
-    const scenario = makeScenario();
+    const scenario = makeScenario("bunsql-table-");
     try {
       const invalidNames = [
         "bad name",
@@ -223,7 +177,7 @@ describe("identifier validation", () => {
   });
 
   it("rejects an invalid schema name before touching the database", async () => {
-    const scenario = makeScenario();
+    const scenario = makeScenario("bunsql-table-");
     try {
       await expect(
         createDriver("postgres://user:pass@localhost:5432/db", { schema: "not allowed" }),
@@ -235,7 +189,7 @@ describe("identifier validation", () => {
   });
 
   it("rejects the schema option on non-postgres URLs", async () => {
-    const scenario = makeScenario();
+    const scenario = makeScenario("bunsql-table-");
     try {
       await expect(
         createDriver(`sqlite:${scenario.dbPath}`, { schema: "private" }),

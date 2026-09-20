@@ -1,26 +1,14 @@
 import type { DriverTableOptions, MigrationDriver } from "../core/driver.js";
-import { doubleQuoted, validateIdentifier } from "../core/identifiers.js";
-import { createSqlDriver } from "./shared.js";
+import { doubleQuoted } from "../core/identifiers.js";
+import { createSqlDriver, resolveTableRef, UNIQUE_INDEX_SUFFIX } from "./shared.js";
 
 const TABLE_NAME_MAX_LENGTH = 128;
-const UNIQUE_INDEX_SUFFIX = "_migration_unique";
-
-function resolveTableRef(options: DriverTableOptions): {
-  table: string;
-  index: string;
-  name: string;
-} {
-  const tableName = options.tableName ?? "migrations";
-  validateIdentifier("table", tableName, TABLE_NAME_MAX_LENGTH);
-  return {
-    table: doubleQuoted(tableName),
-    index: doubleQuoted(`${tableName}${UNIQUE_INDEX_SUFFIX}`),
-    name: tableName,
-  };
-}
 
 export function create(databaseUrl: string, options: DriverTableOptions = {}): MigrationDriver {
-  const { table, index, name } = resolveTableRef(options);
+  const { table, index, name } = resolveTableRef(options, {
+    quote: doubleQuoted,
+    maxLength: TABLE_NAME_MAX_LENGTH,
+  });
   return createSqlDriver(
     databaseUrl,
     {

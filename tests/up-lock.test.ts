@@ -1,28 +1,8 @@
 import { describe, it, expect } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { createDriver, migrateUp } from "../src/index.js";
-
-interface LockScenario {
-  options: { databaseUrl: string; listDir: string };
-  dbUrl: string;
-  listDir: string;
-  cleanup(): void;
-}
-
-function makeScenario(): LockScenario {
-  const dir = mkdtempSync(path.join(tmpdir(), "bunsql-up-lock-"));
-  const dbPath = path.join(dir, "lock.db");
-  const listDir = path.join(dir, "list");
-  mkdirSync(listDir, { recursive: true });
-  return {
-    options: { databaseUrl: `sqlite:${dbPath}`, listDir },
-    dbUrl: `sqlite:${dbPath}`,
-    listDir,
-    cleanup: () => rmSync(dir, { recursive: true, force: true }),
-  };
-}
+import { makeScenario } from "./helpers.js";
 
 function writeMigration(listDir: string, file: string, body: string): void {
   writeFileSync(path.join(listDir, file), body);
@@ -61,7 +41,7 @@ async function readTables(dbUrl: string): Promise<string[]> {
 
 describe("migrateUp() locking on SQLite", () => {
   it("releases the lock when a migration fails and lets the next up succeed", async () => {
-    const scenario = makeScenario();
+    const scenario = makeScenario("bunsql-up-lock-", "lock.db");
     try {
       const boomFile = "9_boom.js";
       const okFile = "1_ok.js";
@@ -69,14 +49,14 @@ describe("migrateUp() locking on SQLite", () => {
       writeMigration(scenario.listDir, okFile, passingMigrationFile("ok_table"));
 
       await expect(migrateUp(scenario.options)).rejects.toThrow("migration-boom");
-      expect(await readTables(scenario.dbUrl)).not.toContain("boom_table");
+      expect(await readTables(scenario.options.databaseUrl)).not.toContain("boom_table");
 
       unlinkSync(path.join(scenario.listDir, boomFile));
       const fixedFile = "8_boom_fixed.js";
       writeMigration(scenario.listDir, fixedFile, passingMigrationFile("boom_table"));
       const second = await migrateUp(scenario.options);
       expect(second.applied).toEqual([fixedFile, okFile]);
-      expect(await readTables(scenario.dbUrl)).toEqual(
+      expect(await readTables(scenario.options.databaseUrl)).toEqual(
         expect.arrayContaining(["boom_table", "ok_table"]),
       );
     } finally {
@@ -85,7 +65,7 @@ describe("migrateUp() locking on SQLite", () => {
   });
 
   it("validates lockTimeout before touching the database", async () => {
-    const scenario = makeScenario();
+    const scenario = makeScenario("bunsql-up-lock-", "lock.db");
     try {
       await expect(migrateUp({ ...scenario.options, lockTimeout: -1 })).rejects.toThrow(
         /lockTimeout/,
@@ -99,9 +79,9 @@ describe("migrateUp() locking on SQLite", () => {
   });
 
   it("gives the sqlite driver a working tryLock/releaseLock pair", async () => {
-    const scenario = makeScenario();
+    const scenario = makeScenario("bunsql-up-lock-", "lock.db");
     try {
-      const driver = await createDriver(scenario.dbUrl);
+      const driver = await createDriver(scenario.options.databaseUrl);
       try {
         await driver.install();
         const { tryLock, releaseLock } = driver;
@@ -121,10 +101,10 @@ describe("migrateUp() locking on SQLite", () => {
   });
 
   it("makes a second connection wait for the file write lock up to the busy timeout", async () => {
-    const scenario = makeScenario();
+    const scenario = makeScenario("bunsql-up-lock-", "lock.db");
     try {
-      const first = await createDriver(scenario.dbUrl);
-      const second = await createDriver(scenario.dbUrl);
+      const first = await createDriver(scenario.options.databaseUrl);
+      const second = await createDriver(scenario.options.databaseUrl);
       try {
         await first.install();
         await second.install();
@@ -135,11 +115,16 @@ describe("migrateUp() locking on SQLite", () => {
         }
         await lockSecond(1);
 
+        let signalLockHeld!: () => void;
+        const lockHeld = new Promise<void>((resolve) => {
+          signalLockHeld = resolve;
+        });
         const holding = first.transaction(async (tx) => {
           await tx`INSERT INTO migrations (migration, checksum) VALUES ('holding_row', NULL)`;
-          await Bun.sleep(1500);
+          signalLockHeld();
+          await Bun.sleep(3000);
         });
-        await Bun.sleep(150);
+        await lockHeld;
 
         const startedAt = Date.now();
         await expect(second.record("contending_row", "c".repeat(64))).rejects.toThrow();

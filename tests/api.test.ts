@@ -10,6 +10,7 @@ import {
   ChecksumDriftError,
   MigrationNotFoundError,
 } from "../src/index.js";
+import { makeScenario, readRecorded, readRowCount, readTables } from "./helpers.js";
 
 const originalDatabaseUrl = process.env["DATABASE_URL"];
 
@@ -53,40 +54,6 @@ export { up, down };
   );
 }
 
-function readTables(file: string = dbPath): string[] {
-  const db = new Database(file);
-  try {
-    return db
-      .query<{ name: string }, []>("SELECT name FROM sqlite_master WHERE type = 'table'")
-      .all()
-      .map((row) => row.name);
-  } finally {
-    db.close();
-  }
-}
-
-function readRecorded(file: string = dbPath): string[] {
-  const db = new Database(file);
-  try {
-    return db
-      .query<{ migration: string }, []>("SELECT migration FROM migrations ORDER BY id ASC")
-      .all()
-      .map((row) => row.migration);
-  } finally {
-    db.close();
-  }
-}
-
-function readRowCount(table: string, file: string = dbPath): number {
-  const db = new Database(file);
-  try {
-    const row = db.query<{ n: number }, []>(`SELECT COUNT(*) AS n FROM ${table}`).get();
-    return row?.n ?? 0;
-  } finally {
-    db.close();
-  }
-}
-
 describe("Migration up/down through SQLite (default sql client)", () => {
   it("up() executes the migration and down() rolls it back", async () => {
     const file = "2025_01_01_120000_create_users.js";
@@ -104,9 +71,9 @@ export { up, down };
     );
     const mod = await import(path.join(directImportDir, file));
     await mod.up();
-    expect(readTables()).toContain("users");
+    expect(readTables(dbPath)).toContain("users");
     await mod.down();
-    expect(readTables()).not.toContain("users");
+    expect(readTables(dbPath)).not.toContain("users");
   });
 });
 
@@ -114,7 +81,7 @@ describe("installMigrations()", () => {
   it("creates the tracking table and is idempotent", async () => {
     await installMigrations(options);
     await installMigrations(options);
-    expect(readTables()).toContain("migrations");
+    expect(readTables(dbPath)).toContain("migrations");
   });
 
   it("throws when no database URL is configured", async () => {
@@ -135,9 +102,9 @@ describe("migrateUp()", () => {
     const result = await migrateUp(options);
 
     expect(result.applied).toEqual(["2_second.js", "1_first.js"]);
-    expect(readTables()).toContain("first_table");
-    expect(readTables()).toContain("second_table");
-    expect(readRecorded()).toEqual(["2_second.js", "1_first.js"]);
+    expect(readTables(dbPath)).toContain("first_table");
+    expect(readTables(dbPath)).toContain("second_table");
+    expect(readRecorded(dbPath)).toEqual(["2_second.js", "1_first.js"]);
   });
 
   it("returns an empty list on a repeated run", async () => {
@@ -182,8 +149,8 @@ describe("migrateDown()", () => {
     const result = await migrateDown(options);
 
     expect(result.reverted).toEqual(["1_rollback.js"]);
-    expect(readTables()).not.toContain("rollback_table");
-    expect(readRecorded()).not.toContain("1_rollback.js");
+    expect(readTables(dbPath)).not.toContain("rollback_table");
+    expect(readRecorded(dbPath)).not.toContain("1_rollback.js");
   });
 
   it("removes the tracking record when the migration has no down() export", async () => {
@@ -367,7 +334,7 @@ export { up, down };
     expect(result.applied).toEqual(["1_tx_apply.js"]);
     expect(readTables(txDbPath)).toContain("tx_apply_table");
     expect(readRecorded(txDbPath)).toContain("1_tx_apply.js");
-    expect(readRowCount("tx_apply_table", txDbPath)).toBe(1);
+    expect(readRowCount(txDbPath, "tx_apply_table")).toBe(1);
   });
 
   it("rolls back a failed tx migration and leaves no tracking record", async () => {
@@ -404,7 +371,7 @@ export { up, down };
 
     const result = await migrateUp(txOptions);
     expect(result.applied).toEqual(["1_tx_retry.js"]);
-    expect(readRowCount("tx_rollback_table", txDbPath)).toBe(1);
+    expect(readRowCount(txDbPath, "tx_rollback_table")).toBe(1);
   });
 
   it("runs down(tx) inside a transaction", async () => {
@@ -430,24 +397,6 @@ export { up, down };
 });
 
 describe("migrateDown() steps", () => {
-  interface StepsScenario {
-    options: { databaseUrl: string; listDir: string };
-    dbPath: string;
-    cleanup(): void;
-  }
-
-  function makeScenario(): StepsScenario {
-    const dir = mkdtempSync(path.join(tmpdir(), "bunsql-steps-"));
-    const dbFile = path.join(dir, "db.sqlite");
-    const fileList = path.join(dir, "list");
-    mkdirSync(fileList, { recursive: true });
-    return {
-      options: { databaseUrl: `sqlite:${dbFile}`, listDir: fileList },
-      dbPath: dbFile,
-      cleanup: () => rmSync(dir, { recursive: true, force: true }),
-    };
-  }
-
   function writeTableMigration(
     fileList: string,
     file: string,
@@ -468,7 +417,7 @@ export { up, down };
   }
 
   it("rolls back N migrations in reverse apply order with steps", async () => {
-    const scenario = makeScenario();
+    const scenario = makeScenario("bunsql-steps-");
     try {
       writeTableMigration(scenario.options.listDir, "1_a.js", "a_table");
       writeTableMigration(scenario.options.listDir, "2_b.js", "b_table");
@@ -488,7 +437,7 @@ export { up, down };
   });
 
   it('reverts everything with steps: "all"', async () => {
-    const scenario = makeScenario();
+    const scenario = makeScenario("bunsql-steps-");
     try {
       writeTableMigration(scenario.options.listDir, "1_a.js", "a_table");
       writeTableMigration(scenario.options.listDir, "2_b.js", "b_table");
@@ -506,7 +455,7 @@ export { up, down };
   });
 
   it("reverts everything when steps exceed the applied count", async () => {
-    const scenario = makeScenario();
+    const scenario = makeScenario("bunsql-steps-");
     try {
       writeTableMigration(scenario.options.listDir, "1_a.js", "a_table");
       writeTableMigration(scenario.options.listDir, "2_b.js", "b_table");
@@ -522,7 +471,7 @@ export { up, down };
   });
 
   it("stops at the first failed rollback and keeps earlier rollbacks", async () => {
-    const scenario = makeScenario();
+    const scenario = makeScenario("bunsql-steps-");
     try {
       writeTableMigration(scenario.options.listDir, "1_a.js", "a_table");
       writeTableMigration(
@@ -546,7 +495,7 @@ export { up, down };
   });
 
   it("throws on an invalid steps value without touching the database", async () => {
-    const scenario = makeScenario();
+    const scenario = makeScenario("bunsql-steps-");
     try {
       writeTableMigration(scenario.options.listDir, "1_a.js", "a_table");
       await migrateUp(scenario.options);
@@ -563,24 +512,6 @@ export { up, down };
 });
 
 describe("migrateUp() with to", () => {
-  interface ToScenario {
-    options: { databaseUrl: string; listDir: string };
-    dbPath: string;
-    cleanup(): void;
-  }
-
-  function makeScenario(): ToScenario {
-    const dir = mkdtempSync(path.join(tmpdir(), "bunsql-to-"));
-    const dbFile = path.join(dir, "db.sqlite");
-    const fileList = path.join(dir, "list");
-    mkdirSync(fileList, { recursive: true });
-    return {
-      options: { databaseUrl: `sqlite:${dbFile}`, listDir: fileList },
-      dbPath: dbFile,
-      cleanup: () => rmSync(dir, { recursive: true, force: true }),
-    };
-  }
-
   function writeTableMigration(fileList: string, file: string, table: string): void {
     writeFileSync(
       path.join(fileList, file),
@@ -594,7 +525,7 @@ export { up, down };
   }
 
   it("applies pending migrations up to and including the target", async () => {
-    const scenario = makeScenario();
+    const scenario = makeScenario("bunsql-to-");
     try {
       writeTableMigration(scenario.options.listDir, "1_a.js", "a_table");
       writeTableMigration(scenario.options.listDir, "2_b.js", "b_table");
@@ -615,7 +546,7 @@ export { up, down };
   });
 
   it("does nothing when the target is already applied", async () => {
-    const scenario = makeScenario();
+    const scenario = makeScenario("bunsql-to-");
     try {
       writeTableMigration(scenario.options.listDir, "1_a.js", "a_table");
       writeTableMigration(scenario.options.listDir, "2_b.js", "b_table");
@@ -631,7 +562,7 @@ export { up, down };
   });
 
   it("throws MigrationNotFoundError for an unknown target before applying anything", async () => {
-    const scenario = makeScenario();
+    const scenario = makeScenario("bunsql-to-");
     try {
       writeTableMigration(scenario.options.listDir, "1_a.js", "a_table");
 

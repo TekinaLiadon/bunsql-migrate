@@ -1,26 +1,16 @@
 import { type SQL } from "bun";
 import type { DriverTableOptions, MigrationDriver } from "../core/driver.js";
-import { backtickQuoted, validateIdentifier } from "../core/identifiers.js";
-import { createReservedLock, createSqlDriver } from "./shared.js";
+import { backtickQuoted } from "../core/identifiers.js";
+import {
+  createReservedLock,
+  createSqlDriver,
+  resolveTableRef,
+  UNIQUE_INDEX_SUFFIX,
+} from "./shared.js";
 
 const LOCK_NAME_PREFIX = "bunsql-native-migrate:";
 
 const TABLE_NAME_MAX_LENGTH = 47;
-const UNIQUE_INDEX_SUFFIX = "_migration_unique";
-
-function resolveTableRef(options: DriverTableOptions): {
-  table: string;
-  index: string;
-  name: string;
-} {
-  const tableName = options.tableName ?? "migrations";
-  validateIdentifier("table", tableName, TABLE_NAME_MAX_LENGTH);
-  return {
-    table: backtickQuoted(tableName),
-    index: backtickQuoted(`${tableName}${UNIQUE_INDEX_SUFFIX}`),
-    name: tableName,
-  };
-}
 
 async function checksumColumnExists(db: SQL, tableName: string): Promise<boolean> {
   const rows = await db`SELECT column_name FROM information_schema.columns
@@ -39,7 +29,10 @@ async function uniqueIndexExists(db: SQL, tableName: string): Promise<boolean> {
 }
 
 export function create(databaseUrl: string, options: DriverTableOptions = {}): MigrationDriver {
-  const { table, index, name } = resolveTableRef(options);
+  const { table, index, name } = resolveTableRef(options, {
+    quote: backtickQuoted,
+    maxLength: TABLE_NAME_MAX_LENGTH,
+  });
   return createSqlDriver(
     databaseUrl,
     {

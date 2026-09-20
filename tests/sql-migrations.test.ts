@@ -1,29 +1,8 @@
 import { describe, it, expect } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync } from "node:fs";
 import path from "node:path";
-import { Database } from "bun:sqlite";
 import { migrateUp, migrateDown, migrateStatus, ChecksumDriftError } from "../src/index.js";
-
-interface SqlScenario {
-  options: { databaseUrl: string; listDir: string };
-  dbPath: string;
-  listDir: string;
-  cleanup(): void;
-}
-
-function makeScenario(): SqlScenario {
-  const dir = mkdtempSync(path.join(tmpdir(), "bunsql-sqlmig-"));
-  const dbPath = path.join(dir, "migrate.db");
-  const listDir = path.join(dir, "list");
-  mkdirSync(listDir, { recursive: true });
-  return {
-    options: { databaseUrl: `sqlite:${dbPath}`, listDir },
-    dbPath,
-    listDir,
-    cleanup: () => rmSync(dir, { recursive: true, force: true }),
-  };
-}
+import { makeScenario, readRecorded, readRowCount, readTables } from "./helpers.js";
 
 function writeJsMigration(listDir: string, file: string, table: string): void {
   writeFileSync(
@@ -47,43 +26,9 @@ function writeSqlPair(listDir: string, name: string, upSql: string, downSql?: st
   return `${name}.up.sql`;
 }
 
-function readTables(dbPath: string): string[] {
-  const db = new Database(dbPath);
-  try {
-    return db
-      .query<{ name: string }, []>("SELECT name FROM sqlite_master WHERE type = 'table'")
-      .all()
-      .map((row) => row.name);
-  } finally {
-    db.close();
-  }
-}
-
-function readRecorded(dbPath: string): string[] {
-  const db = new Database(dbPath);
-  try {
-    return db
-      .query<{ migration: string }, []>("SELECT migration FROM migrations ORDER BY id ASC")
-      .all()
-      .map((row) => row.migration);
-  } finally {
-    db.close();
-  }
-}
-
-function readRowCount(dbPath: string, table: string): number {
-  const db = new Database(dbPath);
-  try {
-    const row = db.query<{ n: number }, []>(`SELECT COUNT(*) AS n FROM ${table}`).get();
-    return row?.n ?? 0;
-  } finally {
-    db.close();
-  }
-}
-
 describe("SQL migration pairs", () => {
   it("applies .up.sql migrations interleaved with .js/.ts in pure filename order", async () => {
-    const scenario = makeScenario();
+    const scenario = makeScenario("bunsql-sqlmig-");
     try {
       writeJsMigration(scenario.listDir, "1_first.js", "first_table");
       writeSqlPair(
@@ -122,7 +67,7 @@ export { up, down };
   });
 
   it("rolls a .sql migration back through its .down.sql pair", async () => {
-    const scenario = makeScenario();
+    const scenario = makeScenario("bunsql-sqlmig-");
     try {
       writeSqlPair(
         scenario.listDir,
@@ -143,7 +88,7 @@ export { up, down };
   });
 
   it("removes the tracking record when the .up.sql has no .down.sql pair", async () => {
-    const scenario = makeScenario();
+    const scenario = makeScenario("bunsql-sqlmig-");
     try {
       writeSqlPair(scenario.listDir, "1_nopair", "CREATE TABLE nopair_table (id INTEGER);");
 
@@ -159,7 +104,7 @@ export { up, down };
   });
 
   it("detects checksum drift on a modified .up.sql file", async () => {
-    const scenario = makeScenario();
+    const scenario = makeScenario("bunsql-sqlmig-");
     try {
       writeSqlPair(scenario.listDir, "1_drift", "CREATE TABLE drift_table (id INTEGER);");
       await migrateUp(scenario.options);
@@ -176,7 +121,7 @@ export { up, down };
   });
 
   it("rolls a failed multi-statement .up.sql back entirely and records nothing", async () => {
-    const scenario = makeScenario();
+    const scenario = makeScenario("bunsql-sqlmig-");
     try {
       writeSqlPair(
         scenario.listDir,
@@ -202,7 +147,7 @@ export { up, down };
   });
 
   it("applies a .up.sql target with to", async () => {
-    const scenario = makeScenario();
+    const scenario = makeScenario("bunsql-sqlmig-");
     try {
       writeSqlPair(scenario.listDir, "1_a", "CREATE TABLE sql_a (id INTEGER);");
       writeSqlPair(scenario.listDir, "2_b", "CREATE TABLE sql_b (id INTEGER);");
@@ -220,7 +165,7 @@ export { up, down };
   });
 
   it("ignores a .down.sql file without its .up.sql pair", async () => {
-    const scenario = makeScenario();
+    const scenario = makeScenario("bunsql-sqlmig-");
     try {
       writeJsMigration(scenario.listDir, "1_only.js", "only_table");
       writeFileSync(path.join(scenario.listDir, "9_orphan.down.sql"), "DROP TABLE nothing;");
