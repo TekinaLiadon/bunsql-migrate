@@ -1,4 +1,5 @@
 import { log } from "../core/console.js";
+import { resolveSecondsOption } from "../core/duration.js";
 import type { MigrationDriver } from "../core/driver.js";
 import { MigrationLockError } from "./options.js";
 
@@ -7,13 +8,7 @@ export const DEFAULT_LOCK_TIMEOUT_SECONDS = 30;
 const LOCK_RETRY_DELAY_MS = 100;
 
 export function resolveLockTimeout(lockTimeout: number | undefined): number {
-  if (lockTimeout === undefined) return DEFAULT_LOCK_TIMEOUT_SECONDS;
-  if (!Number.isInteger(lockTimeout) || lockTimeout < 0) {
-    throw new Error(
-      `Invalid lockTimeout: ${String(lockTimeout)} — expected a non-negative integer of seconds`,
-    );
-  }
-  return lockTimeout;
+  return resolveSecondsOption("lockTimeout", lockTimeout, DEFAULT_LOCK_TIMEOUT_SECONDS);
 }
 
 export async function withMigrationLock<T>(

@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { Database } from "bun:sqlite";
@@ -26,6 +26,30 @@ export function makeScenario(prefix: string, dbFile = "migrate.db"): Scenario {
 }
 
 export const CLI_ENTRY = path.resolve(import.meta.dir, "..", "src", "cli", "main.ts");
+
+export function envWithoutDatabaseUrl(extra: Record<string, string> = {}): Record<string, string> {
+  const env: Record<string, string> = { ...extra };
+  for (const [key, value] of Object.entries(process.env)) {
+    if (key !== "DATABASE_URL" && value !== undefined) {
+      env[key] = value;
+    }
+  }
+  return env;
+}
+
+export function writeTableMigration(listDir: string, file: string, table: string): void {
+  writeFileSync(
+    path.join(listDir, file),
+    `const up = async (tx) => {
+  await tx\`CREATE TABLE ${table} (id INTEGER)\`;
+};
+const down = async (tx) => {
+  await tx\`DROP TABLE ${table}\`;
+};
+export { up, down };
+`,
+  );
+}
 
 export async function runCli(
   args: string[],

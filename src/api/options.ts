@@ -5,6 +5,7 @@ export interface MigrateOptions {
   listDir?: string;
   tableName?: string;
   schema?: string;
+  waitTimeout?: number;
 }
 
 export interface MigrateUpOptions extends MigrateOptions {
@@ -15,7 +16,14 @@ export interface MigrateUpOptions extends MigrateOptions {
 
 export interface MigrateDownOptions extends MigrateOptions {
   steps?: number | "all";
+  to?: string;
   dryRun?: boolean;
+}
+
+export interface RedoOptions extends MigrateOptions {
+  steps?: number;
+  to?: string;
+  lockTimeout?: number;
 }
 
 export interface MarkOptions extends MigrateOptions {
@@ -30,6 +38,11 @@ export interface MigrateUpResult {
 export interface MigrateDownResult {
   reverted: string[];
   planned?: string[];
+}
+
+export interface RedoResult {
+  reverted: string[];
+  applied: string[];
 }
 
 export interface MarkResult {
@@ -71,6 +84,17 @@ export class MigrationLockError extends Error {
       `could not acquire the migration lock within ${timeoutSeconds}s — another migrate up is probably still running`,
     );
     this.name = "MigrationLockError";
+    this.timeoutSeconds = timeoutSeconds;
+  }
+}
+
+export class DatabaseWaitTimeoutError extends Error {
+  readonly timeoutSeconds: number;
+
+  constructor(timeoutSeconds: number, cause?: unknown) {
+    const reason = cause instanceof Error ? `: ${cause.message}` : "";
+    super(`database was not ready within ${timeoutSeconds}s${reason}`);
+    this.name = "DatabaseWaitTimeoutError";
     this.timeoutSeconds = timeoutSeconds;
   }
 }

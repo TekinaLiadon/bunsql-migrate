@@ -7,6 +7,7 @@ import {
 import { InvalidIdentifierError } from "./core/identifiers.js";
 import { migrateUp } from "./api/up.js";
 import { migrateDown } from "./api/down.js";
+import { migrateRedo } from "./api/redo.js";
 import { migrateStatus } from "./api/status.js";
 import { installMigrations } from "./api/install.js";
 import { createMigration } from "./api/create.js";
@@ -20,7 +21,10 @@ import {
   type MigrateStatusResult,
   type MigrateUpOptions,
   type MigrateUpResult,
+  type RedoOptions,
+  type RedoResult,
   ChecksumDriftError,
+  DatabaseWaitTimeoutError,
   GitStageError,
   MigrationLockError,
   MigrationNotFoundError,
@@ -30,11 +34,13 @@ export {
   createDriver,
   migrateUp,
   migrateDown,
+  migrateRedo,
   migrateStatus,
   installMigrations,
   createMigration,
   markMigrationsApplied,
   ChecksumDriftError,
+  DatabaseWaitTimeoutError,
   GitStageError,
   InvalidIdentifierError,
   MigrationLockError,
@@ -49,6 +55,8 @@ export type {
   MigrateUpResult,
   MigrateDownOptions,
   MigrateDownResult,
+  RedoOptions,
+  RedoResult,
   MarkOptions,
   MarkResult,
   MigrateStatusResult,

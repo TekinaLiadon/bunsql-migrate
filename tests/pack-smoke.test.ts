@@ -107,6 +107,16 @@ describe("pack smoke test (tarball as a consumer sees it)", () => {
     expect(help.exitCode).toBe(0);
     expect(help.output).toContain("Usage: bunsql-native-migrate");
 
+    const installedPkg = await Bun.file(
+      path.join(projectDir, "node_modules", "bunsql-native-migrate", "package.json"),
+    ).json();
+    const version = await run([...cli, "--version"], {
+      cwd: projectDir,
+      env: { PATH: process.env.PATH ?? "" },
+    });
+    expect(version.exitCode).toBe(0);
+    expect(version.output.trim()).toBe(installedPkg.version);
+
     const init = await run([...cli, "init", "--dir", "list"], {
       cwd: projectDir,
       env,

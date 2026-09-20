@@ -1,3 +1,4 @@
+import { listFiles, MIGRATION_EXTENSIONS } from "../core/fs.js";
 import { log } from "../core/console.js";
 import { MigrationNotFoundError } from "./options.js";
 
@@ -12,6 +13,26 @@ interface ResolvePendingOptions {
   target: string | undefined;
 }
 
+export function assertTargetInFiles(allFiles: readonly string[], target: string): void {
+  if (!allFiles.includes(target)) {
+    throw new MigrationNotFoundError(target);
+  }
+}
+
+export async function assertTargetOptions(
+  command: string,
+  listDir: string,
+  target: string | undefined,
+  steps: unknown,
+): Promise<void> {
+  if (target !== undefined && steps !== undefined) {
+    throw new Error(`Invalid ${command} options: "to" and "steps" cannot be combined`);
+  }
+  if (target !== undefined) {
+    assertTargetInFiles(await listFiles(listDir, MIGRATION_EXTENSIONS), target);
+  }
+}
+
 export function resolvePendingToTarget({
   allFiles,
   executedNames,
@@ -19,8 +40,8 @@ export function resolvePendingToTarget({
 }: ResolvePendingOptions): PendingToTargetResult {
   const executed = new Set(executedNames);
 
-  if (target !== undefined && !allFiles.includes(target)) {
-    throw new MigrationNotFoundError(target);
+  if (target !== undefined) {
+    assertTargetInFiles(allFiles, target);
   }
 
   let pending = allFiles.filter((file) => !executed.has(file));

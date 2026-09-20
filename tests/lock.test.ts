@@ -1,4 +1,5 @@
 import { describe, it, expect } from "bun:test";
+import { type SQL } from "bun";
 import type { MigrationDriver } from "../src/core/driver.js";
 import {
   DEFAULT_LOCK_TIMEOUT_SECONDS,
@@ -6,6 +7,7 @@ import {
   withMigrationLock,
 } from "../src/api/lock.js";
 import { MigrationLockError } from "../src/api/options.js";
+import { createReservedLock } from "../src/drivers/shared.js";
 
 function makeDriverStub(
   overrides: Partial<Pick<MigrationDriver, "tryLock" | "releaseLock">>,
@@ -140,5 +142,38 @@ describe("withMigrationLock()", () => {
     const bare = makeDriverStub({});
 
     await expect(withMigrationLock(bare, 30, async () => "ok")).resolves.toBe("ok");
+  });
+});
+
+describe("createReservedLock()", () => {
+  it("treats a repeated tryLock as already held without reserving again", async () => {
+    const connections: Array<{ released: boolean; release(): void }> = [];
+    const db = {
+      reserve: async () => {
+        const connection = {
+          released: false,
+          release() {
+            this.released = true;
+          },
+        };
+        connections.push(connection);
+        return connection;
+      },
+    };
+    const lock = createReservedLock(
+      db as unknown as SQL,
+      async () => true,
+      async () => undefined,
+    );
+
+    expect(await lock.tryLock(1)).toBe(true);
+    expect(await lock.tryLock(1)).toBe(true);
+    expect(connections).toHaveLength(1);
+
+    await lock.releaseLock();
+    expect(connections[0]?.released).toBe(true);
+
+    expect(await lock.tryLock(1)).toBe(true);
+    expect(connections).toHaveLength(2);
   });
 });

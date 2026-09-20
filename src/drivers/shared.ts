@@ -47,7 +47,10 @@ export function createReservedLock(
   let lockConnection: ReservedSQL | null = null;
 
   return {
-    async tryLock() {
+    async tryLock(_timeoutSeconds: number): Promise<boolean> {
+      if (lockConnection !== null) {
+        return true;
+      }
       const connection = await db.reserve();
       lockConnection = connection;
       try {
@@ -90,6 +93,7 @@ export function createSqlDriver(
 
   return {
     install: () => dialect.install(db),
+    client: () => db,
     async listExecuted() {
       const rows = await db`SELECT migration, checksum FROM ${db.unsafe(table)} ORDER BY id ASC`;
       return rows.map(

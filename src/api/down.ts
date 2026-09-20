@@ -2,12 +2,15 @@ import { resolveListDir } from "../core/fs.js";
 import { log } from "../core/console.js";
 import { formatDuration } from "../core/duration.js";
 import type { MigrationDriver } from "../core/driver.js";
-import type { MigrateDownOptions, MigrateDownResult } from "./options.js";
+import { type MigrateDownOptions, type MigrateDownResult } from "./options.js";
 import { runWithDriver } from "./run-with-driver.js";
 import { runMigrationStep } from "./run-step.js";
 import { isSqlMigration, loadMigration } from "./load-migration.js";
+import { assertTargetOptions } from "./pending.js";
 import { ensureTrackingTable, listExecutedForPlan } from "./tracking-table.js";
 
+export function parseSteps(steps: number | undefined): number;
+export function parseSteps(steps: number | "all" | undefined): number | "all";
 export function parseSteps(steps: number | "all" | undefined): number | "all" {
   if (steps === undefined) return 1;
   if (steps === "all") return "all";
@@ -41,6 +44,9 @@ async function revertOne(driver: MigrationDriver, listDir: string, file: string)
 export async function migrateDown(options: MigrateDownOptions = {}): Promise<MigrateDownResult> {
   const listDir = resolveListDir(options.listDir);
   const dryRun = options.dryRun ?? false;
+  const target = options.to;
+
+  await assertTargetOptions("down", listDir, target, options.steps);
 
   return runWithDriver(options, async (driver) => {
     if (!dryRun) {
@@ -53,7 +59,16 @@ export async function migrateDown(options: MigrateDownOptions = {}): Promise<Mig
       return dryRun ? { reverted: [], planned: [] } : { reverted: [] };
     }
 
-    const count = resolveStepCount(options.steps, executed.length);
+    const appliedNames = executed.map((entry) => entry.name);
+    let count = resolveStepCount(options.steps, executed.length);
+    if (target !== undefined) {
+      const boundary = appliedNames.indexOf(target);
+      if (boundary === -1) {
+        log({ text: `${target} is not applied — nothing to rollback.`, type: "warn" });
+        return dryRun ? { reverted: [], planned: [] } : { reverted: [] };
+      }
+      count = executed.length - boundary;
+    }
     const revertList = executed.slice(-count).reverse();
     const plan = revertList.map((entry) => entry.name);
 

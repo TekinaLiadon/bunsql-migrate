@@ -17,6 +17,7 @@ export interface MigrationDriver {
   tryLock?(timeoutSeconds: number): Promise<boolean>;
   releaseLock?(): Promise<void>;
   close(): Promise<void>;
+  client?(): SQL;
 }
 
 export interface DriverTableOptions {
