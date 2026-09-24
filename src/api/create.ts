@@ -3,7 +3,7 @@ import { mkdir, open, type FileHandle } from "node:fs/promises";
 import { randomName } from "../core/random-name.js";
 import { resolveListDir } from "../core/fs.js";
 import { log } from "../core/console.js";
-import { GitStageError } from "./options.js";
+import { GitStageError, validateMigrationName } from "./options.js";
 
 export type MigrationLang = "js" | "ts";
 
@@ -84,6 +84,7 @@ async function writeStubExclusively(filePath: string, template: string): Promise
 
 export async function createMigration(options: CreateOptions): Promise<string> {
   const name = options.name ?? randomName();
+  validateMigrationName(name);
   const lang = options.lang ?? "ts";
   await mkdir(options.listDir, { recursive: true });
   let filename = migrationFilename(name, new Date(), lang);

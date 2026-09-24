@@ -3,7 +3,14 @@ import { writeFileSync } from "node:fs";
 import path from "node:path";
 import { migrateRedo, migrateUp, migrateStatus, MigrationNotFoundError } from "../src/index.js";
 import { checksumFile } from "../src/core/fs.js";
-import { makeScenario, readRecords, readRowCount, readTables, runCli } from "./helpers.js";
+import {
+  makeScenario,
+  readRecords,
+  readRowCount,
+  readTables,
+  runCli,
+  writeTableMigration,
+} from "./helpers.js";
 
 function writeMigration(listDir: string, file: string, upBody: string, downBody: string): void {
   writeFileSync(
@@ -16,15 +23,6 @@ const down = async (tx) => {
 };
 export { up, down };
 `,
-  );
-}
-
-function writeTableMigration(listDir: string, file: string, table: string): void {
-  writeMigration(
-    listDir,
-    file,
-    `await tx\`CREATE TABLE ${table} (id INTEGER)\`;`,
-    `await tx\`DROP TABLE ${table}\`;`,
   );
 }
 
@@ -322,12 +320,12 @@ describe("redo CLI", () => {
 
       for (const stepsArg of ["0", "-1", "abc"]) {
         const redo = await runCli(["redo", stepsArg], env);
-        expect(redo.exitCode).toBe(1);
+        expect(redo.exitCode).toBe(5);
         expect(redo.output).toContain("Invalid step count");
       }
 
       const combined = await runCli(["redo", "1", "--to", "1_a.js"], env);
-      expect(combined.exitCode).toBe(1);
+      expect(combined.exitCode).toBe(5);
       expect(combined.output).toContain("not both");
     } finally {
       scenario.cleanup();

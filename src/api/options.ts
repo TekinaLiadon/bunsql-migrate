@@ -76,6 +76,18 @@ export class MigrationNotFoundError extends Error {
   }
 }
 
+export class MigrationFileMissingError extends Error {
+  readonly file: string;
+
+  constructor(file: string) {
+    super(
+      `${file} is missing from the migrations directory — restore the file or remove its tracking record manually`,
+    );
+    this.name = "MigrationFileMissingError";
+    this.file = file;
+  }
+}
+
 export class MigrationLockError extends Error {
   readonly timeoutSeconds: number;
 
@@ -111,5 +123,28 @@ export class GitStageError extends Error {
     this.name = "GitStageError";
     this.file = file;
     this.exitCode = exitCode;
+  }
+}
+
+export const MIGRATION_NAME_MAX_LENGTH = 128;
+
+const MIGRATION_NAME_PATTERN = /^[A-Za-z0-9_-]+$/;
+
+export class InvalidMigrationNameError extends Error {
+  readonly value: string;
+
+  constructor(value: string) {
+    super(
+      `Invalid migration name: "${value}" — expected letters, digits, hyphens and underscores only ` +
+        `(no path separators, dots or spaces), at most ${MIGRATION_NAME_MAX_LENGTH} characters`,
+    );
+    this.name = "InvalidMigrationNameError";
+    this.value = value;
+  }
+}
+
+export function validateMigrationName(name: string): void {
+  if (!MIGRATION_NAME_PATTERN.test(name) || name.length > MIGRATION_NAME_MAX_LENGTH) {
+    throw new InvalidMigrationNameError(name);
   }
 }

@@ -1,4 +1,4 @@
-import { listFiles, MIGRATION_EXTENSIONS, resolveListDir } from "../core/fs.js";
+import { listMigrationFiles, resolveListDir } from "../core/fs.js";
 import { log } from "../core/console.js";
 import { createMigration, type MigrationLang } from "./create.js";
 
@@ -14,7 +14,7 @@ export interface InitResult {
 
 async function existingMigrations(listDir: string): Promise<string[]> {
   try {
-    return await listFiles(listDir, MIGRATION_EXTENSIONS);
+    return await listMigrationFiles(listDir);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
       return [];

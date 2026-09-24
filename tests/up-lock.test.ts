@@ -1,8 +1,9 @@
 import { describe, it, expect } from "bun:test";
-import { unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { createDriver, migrateUp } from "../src/index.js";
-import { makeScenario } from "./helpers.js";
+import { DEFAULT_BUSY_TIMEOUT_MS } from "../src/drivers/sqlite.js";
+import { makeScenario, readRowCount, readRecorded, runCli } from "./helpers.js";
 
 function writeMigration(listDir: string, file: string, body: string): void {
   writeFileSync(path.join(listDir, file), body);
@@ -100,6 +101,35 @@ describe("migrateUp() locking on SQLite", () => {
     }
   });
 
+  it("keeps the default busy_timeout across the lock lifecycle", async () => {
+    const scenario = makeScenario("bunsql-up-lock-", "lock.db");
+    try {
+      const driver = await createDriver(scenario.options.databaseUrl);
+      try {
+        const { tryLock, releaseLock, client } = driver;
+        if (tryLock === undefined || releaseLock === undefined || client === undefined) {
+          throw new Error("sqlite driver must support the lock interface");
+        }
+        const busyTimeout = async (): Promise<number | undefined> => {
+          const rows = (await client().unsafe("PRAGMA busy_timeout")) as Array<{
+            timeout: number;
+          }>;
+          return rows[0]?.timeout;
+        };
+
+        expect(await busyTimeout()).toBe(DEFAULT_BUSY_TIMEOUT_MS);
+        await expect(tryLock(5)).resolves.toBe(true);
+        expect(await busyTimeout()).toBe(DEFAULT_BUSY_TIMEOUT_MS);
+        await releaseLock();
+        expect(await busyTimeout()).toBe(DEFAULT_BUSY_TIMEOUT_MS);
+      } finally {
+        await driver.close();
+      }
+    } finally {
+      scenario.cleanup();
+    }
+  });
+
   it("makes a second connection wait for the file write lock up to the busy timeout", async () => {
     const scenario = makeScenario("bunsql-up-lock-", "lock.db");
     try {
@@ -109,11 +139,11 @@ describe("migrateUp() locking on SQLite", () => {
         await first.install();
         await second.install();
 
-        const { tryLock: lockSecond } = second;
-        if (lockSecond === undefined) {
-          throw new Error("sqlite driver must support the lock interface");
+        const { client } = second;
+        if (client === undefined) {
+          throw new Error("sqlite driver must expose its client");
         }
-        await lockSecond(1);
+        await client().unsafe("PRAGMA busy_timeout = 1000");
 
         let signalLockHeld!: () => void;
         const lockHeld = new Promise<void>((resolve) => {
@@ -135,6 +165,111 @@ describe("migrateUp() locking on SQLite", () => {
         await first.close();
         await second.close();
       }
+    } finally {
+      scenario.cleanup();
+    }
+  });
+});
+
+describe("concurrent up runs on a shared SQLite file", () => {
+  function slowAuditMigration(listDir: string, file: string): void {
+    writeFileSync(
+      path.join(listDir, file),
+      `const up = async (tx) => {
+  await Bun.sleep(400);
+  await tx.unsafe("CREATE TABLE audit (id INTEGER)");
+  await tx.unsafe("INSERT INTO audit VALUES (1)");
+};
+const down = async (tx) => {
+  await tx.unsafe("DROP TABLE IF EXISTS audit");
+};
+export { up, down };
+`,
+    );
+  }
+
+  it("serializes racing runs — one body execution, one record, all exit 0", async () => {
+    const scenario = makeScenario("bunsql-sqlite-race-", "race.db");
+    try {
+      slowAuditMigration(scenario.listDir, "9_audit.js");
+      const env = {
+        ...process.env,
+        DATABASE_URL: scenario.options.databaseUrl,
+        MIGRATION_LIST_DIR: scenario.listDir,
+      };
+
+      const results = await Promise.all(Array.from({ length: 4 }, () => runCli(["up"], env)));
+
+      for (const result of results) {
+        expect(result.exitCode).toBe(0);
+        expect(result.output).not.toContain("database is locked");
+      }
+      expect(readRecorded(scenario.dbPath)).toEqual(["9_audit.js"]);
+      expect(readRowCount(scenario.dbPath, "audit")).toBe(1);
+      expect(existsSync(`${scenario.dbPath}.bunsql-migrate.lock`)).toBe(false);
+    } finally {
+      scenario.cleanup();
+    }
+  });
+
+  it("serializes racing runs when the tracking table already exists", async () => {
+    const scenario = makeScenario("bunsql-sqlite-race-", "race.db");
+    try {
+      slowAuditMigration(scenario.listDir, "9_audit.js");
+      const env = {
+        ...process.env,
+        DATABASE_URL: scenario.options.databaseUrl,
+        MIGRATION_LIST_DIR: scenario.listDir,
+      };
+      expect((await runCli(["install"], env)).exitCode).toBe(0);
+
+      const results = await Promise.all(Array.from({ length: 4 }, () => runCli(["up"], env)));
+
+      for (const result of results) {
+        expect(result.exitCode).toBe(0);
+        expect(result.output).not.toContain("already exists");
+        expect(result.output).not.toContain("database is locked");
+      }
+      expect(readRecorded(scenario.dbPath)).toEqual(["9_audit.js"]);
+      expect(readRowCount(scenario.dbPath, "audit")).toBe(1);
+    } finally {
+      scenario.cleanup();
+    }
+  });
+
+  it("fast-fails with the lock error while another run holds the lock", async () => {
+    const scenario = makeScenario("bunsql-sqlite-race-", "race.db");
+    try {
+      slowAuditMigration(scenario.listDir, "9_audit.js");
+      const holder = await createDriver(scenario.options.databaseUrl);
+      try {
+        const { tryLock, releaseLock } = holder;
+        if (tryLock === undefined || releaseLock === undefined) {
+          throw new Error("sqlite driver must support the lock interface");
+        }
+        await tryLock(30);
+
+        const env = {
+          ...process.env,
+          DATABASE_URL: scenario.options.databaseUrl,
+          MIGRATION_LIST_DIR: scenario.listDir,
+        };
+        const result = await runCli(["up", "--lock-timeout", "0"], env);
+        expect(result.exitCode).toBe(4);
+        expect(result.output).toContain("could not acquire the migration lock");
+
+        await releaseLock();
+      } finally {
+        await holder.close();
+      }
+
+      const env = {
+        ...process.env,
+        DATABASE_URL: scenario.options.databaseUrl,
+        MIGRATION_LIST_DIR: scenario.listDir,
+      };
+      expect((await runCli(["up"], env)).exitCode).toBe(0);
+      expect(readRecorded(scenario.dbPath)).toEqual(["9_audit.js"]);
     } finally {
       scenario.cleanup();
     }

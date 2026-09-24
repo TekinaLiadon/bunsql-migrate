@@ -38,6 +38,21 @@ describe("listFiles()", () => {
     expect(files).toEqual(["3_third.js", "2_second.ts", "1_first.js"]);
   });
 
+  it("ignores TypeScript declaration files (.d.ts)", async () => {
+    const declDir = path.join(testDir, "declarations");
+    mkdirSync(declDir, { recursive: true });
+    writeFileSync(path.join(declDir, "1_real.ts"), "");
+    writeFileSync(path.join(declDir, "2_real.up.sql"), "");
+    writeFileSync(path.join(declDir, "3_real.js"), "");
+    writeFileSync(path.join(declDir, "types.d.ts"), "");
+    writeFileSync(path.join(declDir, "env.d.ts"), "");
+
+    const files = await listFiles(declDir, ["js", "ts", "up.sql"]);
+    expect(files).toEqual(["3_real.js", "2_real.up.sql", "1_real.ts"]);
+    expect(files).not.toContain("types.d.ts");
+    expect(files).not.toContain("env.d.ts");
+  });
+
   it("returns an empty array for an empty directory", async () => {
     const emptyDir = path.join(testDir, "empty");
     mkdirSync(emptyDir, { recursive: true });

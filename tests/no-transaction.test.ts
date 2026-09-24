@@ -181,3 +181,70 @@ export { up, down };
     }
   });
 });
+
+describe("tx parameter with a default value", () => {
+  it("rejects a zero-arity up() that still declares a parameter instead of silently skipping the transaction", async () => {
+    const scenario = makeScenario("bunsql-notx-default-");
+    try {
+      writeFileSync(
+        path.join(scenario.listDir, "1_default.js"),
+        `const up = async (tx = sql) => {
+  await tx\`CREATE TABLE leaked (id INTEGER)\`;
+};
+export { up };
+`,
+      );
+
+      await expect(migrateUp(scenario.options)).rejects.toThrow(
+        /outside the migration transaction/,
+      );
+      expect(readRecorded(scenario.dbPath)).toEqual([]);
+    } finally {
+      scenario.cleanup();
+    }
+  });
+
+  it("rejects a rest-parameter step the same way", async () => {
+    const scenario = makeScenario("bunsql-notx-rest-");
+    try {
+      writeFileSync(
+        path.join(scenario.listDir, "1_rest.js"),
+        `const up = async (...args) => {
+  await args[0]\`CREATE TABLE leaked (id INTEGER)\`;
+};
+export { up };
+`,
+      );
+
+      await expect(migrateUp(scenario.options)).rejects.toThrow(
+        /outside the migration transaction/,
+      );
+      expect(readRecorded(scenario.dbPath)).toEqual([]);
+    } finally {
+      scenario.cleanup();
+    }
+  });
+
+  it("still runs a default-parameter step that is explicitly marked noTransaction", async () => {
+    const scenario = makeScenario("bunsql-notx-marked-");
+    try {
+      writeFileSync(
+        path.join(scenario.listDir, "1_marked.js"),
+        `const up = async (tx = sql) => {
+  await tx\`CREATE TABLE marked_table (id INTEGER)\`;
+};
+const noTransaction = true;
+export { up, noTransaction };
+`,
+      );
+
+      const result = await migrateUp(scenario.options);
+
+      expect(result.applied).toEqual(["1_marked.js"]);
+      expect(readTables(scenario.dbPath)).toContain("marked_table");
+      expect(readRecorded(scenario.dbPath)).toEqual(["1_marked.js"]);
+    } finally {
+      scenario.cleanup();
+    }
+  });
+});

@@ -5,3 +5,7 @@ export function getDatabaseUrl(override?: string): string {
   }
   return url;
 }
+
+export function getMigrationListDir(): string | undefined {
+  return process.env["MIGRATION_LIST_DIR"];
+}

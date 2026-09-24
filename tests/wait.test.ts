@@ -105,7 +105,7 @@ describe("connectDriver()", () => {
 });
 
 describe("CLI --wait", () => {
-  it("rejects invalid values with exit code 1", async () => {
+  it("rejects invalid values with exit code 5", async () => {
     const scenario = makeScenario("bunsql-wait-cli-", "db.sqlite");
     try {
       const env = {
@@ -115,12 +115,12 @@ describe("CLI --wait", () => {
 
       for (const value of ["abc", "-1", "1.5"]) {
         const run = await runCli(["status", "--wait", value], env);
-        expect(run.exitCode).toBe(1);
+        expect(run.exitCode).toBe(5);
         expect(run.output).toContain("Invalid --wait");
       }
 
       const missing = await runCli(["status", "--wait"], env);
-      expect(missing.exitCode).toBe(1);
+      expect(missing.exitCode).toBe(5);
       expect(missing.output).toContain("Invalid --wait");
     } finally {
       scenario.cleanup();

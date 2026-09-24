@@ -1,22 +1,8 @@
 import { describe, it, expect } from "bun:test";
-import { writeFileSync } from "node:fs";
+import { rmSync } from "node:fs";
 import path from "node:path";
 import { migrateDown, migrateUp, MigrationNotFoundError } from "../src/index.js";
-import { makeScenario, readRecorded, readTables, runCli } from "./helpers.js";
-
-function writeTableMigration(listDir: string, file: string, table: string): void {
-  writeFileSync(
-    path.join(listDir, file),
-    `const up = async (tx) => {
-  await tx\`CREATE TABLE ${table} (id INTEGER)\`;
-};
-const down = async (tx) => {
-  await tx\`DROP TABLE ${table}\`;
-};
-export { up, down };
-`,
-  );
-}
+import { makeScenario, readRecorded, readTables, runCli, writeTableMigration } from "./helpers.js";
 
 function writeScenario(listDir: string): void {
   writeTableMigration(listDir, "4_d.js", "d_table");
@@ -205,14 +191,14 @@ describe("CLI down --to", () => {
         ["down", "--to", "2_b.js", "3", "--dir", scenario.listDir],
         env(scenario.options.databaseUrl),
       );
-      expect(withSteps.exitCode).toBe(1);
+      expect(withSteps.exitCode).toBe(5);
       expect(withSteps.output).toContain("not more than one of them");
 
       const withAll = await runCli(
         ["down", "--to", "2_b.js", "--all", "--dir", scenario.listDir],
         env(scenario.options.databaseUrl),
       );
-      expect(withAll.exitCode).toBe(1);
+      expect(withAll.exitCode).toBe(5);
       expect(withAll.output).toContain("not more than one of them");
 
       expect(readRecorded(scenario.dbPath)).toEqual(["4_d.js", "3_c.js", "2_b.js", "1_a.js"]);
@@ -235,6 +221,26 @@ describe("CLI down --to", () => {
       expect(run.exitCode).toBe(0);
       expect(run.output).toContain("1_a.js is not applied");
       expect(readRecorded(scenario.dbPath)).toEqual(["4_d.js", "3_c.js", "2_b.js"]);
+    } finally {
+      scenario.cleanup();
+    }
+  });
+
+  it("stops with a clear error when an applied migration file is missing", async () => {
+    const scenario = makeScenario("bunsql-down-missing-");
+    try {
+      writeTableMigration(scenario.listDir, "1_keep.js", "keep_table");
+      writeTableMigration(scenario.listDir, "0_gone.js", "gone_table");
+      await migrateUp(scenario.options);
+      rmSync(path.join(scenario.listDir, "0_gone.js"));
+
+      await expect(migrateDown({ ...scenario.options, steps: 2 })).rejects.toThrow(
+        /0_gone\.js is missing from the migrations directory/,
+      );
+
+      expect(readRecorded(scenario.dbPath)).toEqual(["1_keep.js", "0_gone.js"]);
+      expect(readTables(scenario.dbPath)).toContain("keep_table");
+      expect(readTables(scenario.dbPath)).toContain("gone_table");
     } finally {
       scenario.cleanup();
     }

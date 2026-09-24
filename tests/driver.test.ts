@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll } from "bun:test";
-import { Database } from "bun:sqlite";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createDriver } from "../src/core/driver.js";
+import { withSqlite } from "./helpers.js";
 
 const SQLITE_URL = "sqlite://:memory:";
 
@@ -120,15 +120,12 @@ describe("MigrationDriver.install() — legacy table", () => {
     const dir = mkdtempSync(path.join(tmpdir(), "bunsql-driver-legacy-"));
     try {
       const dbPath = path.join(dir, "legacy.db");
-      const db = new Database(dbPath);
-      try {
+      withSqlite(dbPath, (db) => {
         db.query(
           "CREATE TABLE migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, migration TEXT NOT NULL)",
         ).run();
         db.query("INSERT INTO migrations (migration) VALUES ('1_legacy.js')").run();
-      } finally {
-        db.close();
-      }
+      });
 
       const legacyDriver = await createDriver(`sqlite:${dbPath}`);
       try {

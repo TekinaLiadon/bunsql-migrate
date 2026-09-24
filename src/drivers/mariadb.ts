@@ -28,7 +28,10 @@ async function uniqueIndexExists(db: SQL, tableName: string): Promise<boolean> {
   return rows.length > 0;
 }
 
-export function create(databaseUrl: string, options: DriverTableOptions = {}): MigrationDriver {
+export async function create(
+  databaseUrl: string,
+  options: DriverTableOptions = {},
+): Promise<MigrationDriver> {
   const { table, index, name } = resolveTableRef(options, {
     quote: backtickQuoted,
     maxLength: TABLE_NAME_MAX_LENGTH,

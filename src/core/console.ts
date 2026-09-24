@@ -15,8 +15,11 @@ interface LogOptions {
 
 function formatError(error: unknown): void {
   if (error instanceof Error) {
+    if (error.stack) {
+      console.log(error.stack);
+      return;
+    }
     console.log(error.message);
-    if (error.stack) console.log(error.stack);
     return;
   }
   if (typeof error !== "object" || error === null) {

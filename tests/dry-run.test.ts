@@ -1,9 +1,8 @@
 import { describe, it, expect } from "bun:test";
 import { writeFileSync } from "node:fs";
 import path from "node:path";
-import { Database } from "bun:sqlite";
 import { migrateUp, migrateDown, ChecksumDriftError } from "../src/index.js";
-import { makeScenario, readRecorded, readRecords, readTables } from "./helpers.js";
+import { makeScenario, readRecorded, readRecords, readTables, withSqlite } from "./helpers.js";
 
 function writeMigration(listDir: string, file: string, table: string): void {
   writeFileSync(
@@ -92,12 +91,9 @@ describe("migrateUp dryRun", () => {
     try {
       writeMigration(scenario.listDir, "1_legacy.js", "legacy_table");
       await migrateUp(scenario.options);
-      const db = new Database(scenario.dbPath);
-      try {
+      withSqlite(scenario.dbPath, (db) => {
         db.query("UPDATE migrations SET checksum = NULL").run();
-      } finally {
-        db.close();
-      }
+      });
 
       const result = await migrateUp({ ...scenario.options, dryRun: true });
 

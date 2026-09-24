@@ -7,7 +7,8 @@ import { runWithDriver } from "./run-with-driver.js";
 import { runMigrationStep } from "./run-step.js";
 import { isSqlMigration, loadMigration } from "./load-migration.js";
 import { assertTargetOptions } from "./pending.js";
-import { ensureTrackingTable, listExecutedForPlan } from "./tracking-table.js";
+import { resolveLockTimeout, withMigrationLock } from "./lock.js";
+import { loadExecutedHistory } from "./tracking-table.js";
 
 export function parseSteps(steps: number | undefined): number;
 export function parseSteps(steps: number | "all" | undefined): number | "all";
@@ -49,49 +50,52 @@ export async function migrateDown(options: MigrateDownOptions = {}): Promise<Mig
   await assertTargetOptions("down", listDir, target, options.steps);
 
   return runWithDriver(options, async (driver) => {
-    if (!dryRun) {
-      await ensureTrackingTable(driver);
-    }
-
-    const executed = dryRun ? await listExecutedForPlan(driver) : await driver.listExecuted();
-    if (executed.length === 0) {
-      log({ text: "No migrations to rollback.", type: "warn" });
-      return dryRun ? { reverted: [], planned: [] } : { reverted: [] };
-    }
-
-    const appliedNames = executed.map((entry) => entry.name);
-    let count = resolveStepCount(options.steps, executed.length);
-    if (target !== undefined) {
-      const boundary = appliedNames.indexOf(target);
-      if (boundary === -1) {
-        log({ text: `${target} is not applied — nothing to rollback.`, type: "warn" });
+    const run = async (): Promise<MigrateDownResult> => {
+      const executed = await loadExecutedHistory(driver, dryRun);
+      if (executed.length === 0) {
+        log({ text: "No migrations to rollback.", type: "warn" });
         return dryRun ? { reverted: [], planned: [] } : { reverted: [] };
       }
-      count = executed.length - boundary;
-    }
-    const revertList = executed.slice(-count).reverse();
-    const plan = revertList.map((entry) => entry.name);
+
+      const appliedNames = executed.map((entry) => entry.name);
+      let count = resolveStepCount(options.steps, executed.length);
+      if (target !== undefined) {
+        const boundary = appliedNames.indexOf(target);
+        if (boundary === -1) {
+          log({ text: `${target} is not applied — nothing to rollback.`, type: "warn" });
+          return dryRun ? { reverted: [], planned: [] } : { reverted: [] };
+        }
+        count = executed.length - boundary;
+      }
+      const revertList = executed.slice(-count).reverse();
+      const plan = revertList.map((entry) => entry.name);
+
+      if (dryRun) {
+        log({ text: "Dry run — no changes will be made.", type: "info" });
+        for (const file of plan) {
+          log({ text: `${file} would be rolled back`, type: "info" });
+        }
+        return { reverted: [], planned: plan };
+      }
+
+      const reverted: string[] = [];
+
+      for (const entry of revertList) {
+        try {
+          await revertOne(driver, listDir, entry.name);
+        } catch (error) {
+          log({ text: `${entry.name} rollback failed`, type: "error", error });
+          throw error;
+        }
+        reverted.push(entry.name);
+      }
+
+      return { reverted };
+    };
 
     if (dryRun) {
-      log({ text: "Dry run — no changes will be made.", type: "info" });
-      for (const file of plan) {
-        log({ text: `${file} would be rolled back`, type: "info" });
-      }
-      return { reverted: [], planned: plan };
+      return run();
     }
-
-    const reverted: string[] = [];
-
-    for (const entry of revertList) {
-      try {
-        await revertOne(driver, listDir, entry.name);
-      } catch (error) {
-        log({ text: `${entry.name} rollback failed`, type: "error", error });
-        throw error;
-      }
-      reverted.push(entry.name);
-    }
-
-    return { reverted };
+    return withMigrationLock(driver, resolveLockTimeout(undefined), run);
   });
 }

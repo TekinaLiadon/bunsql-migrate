@@ -1,10 +1,10 @@
 import { describe, expect, it, afterAll } from "bun:test";
 import { SQL } from "bun";
-import { Database } from "bun:sqlite";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createDriver } from "../src/core/driver.js";
+import { withSqlite } from "./helpers.js";
 
 const tempDir = mkdtempSync(join(tmpdir(), "bunsql-migrate-sqlite-"));
 
@@ -90,17 +90,14 @@ describe("MigrationDriver — SQLite (integration)", () => {
       await driver.remove("0001-custom");
       expect(await driver.listExecuted()).toEqual([]);
 
-      const db = new Database(join(tempDir, "custom.db"));
-      try {
+      withSqlite(join(tempDir, "custom.db"), (db) => {
         const tables = db
           .query<{ name: string }, []>("SELECT name FROM sqlite_master WHERE type = 'table'")
           .all()
           .map((row) => row.name);
         expect(tables).toContain("app_migrations");
         expect(tables).not.toContain("migrations");
-      } finally {
-        db.close();
-      }
+      });
     } finally {
       await driver.close();
     }

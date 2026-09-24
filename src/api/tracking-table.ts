@@ -13,3 +13,14 @@ export async function listExecutedForPlan(driver: MigrationDriver): Promise<Exec
   }
   return driver.listExecuted();
 }
+
+export async function loadExecutedHistory(
+  driver: MigrationDriver,
+  dryRun: boolean,
+): Promise<ExecutedMigration[]> {
+  if (dryRun) {
+    return listExecutedForPlan(driver);
+  }
+  await ensureTrackingTable(driver);
+  return driver.listExecuted();
+}

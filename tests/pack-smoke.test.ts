@@ -137,12 +137,10 @@ describe("pack smoke test (tarball as a consumer sees it)", () => {
       cwd: projectDir,
       env,
     });
-    expect(strictPending.exitCode).toBe(1);
+    expect(strictPending.exitCode).toBe(2);
     expect(strictPending.output).toContain("Strict mode: 2 pending migration(s).");
 
-    expect(
-      (await run([...cli, "install", "--dir", "list"], { cwd: projectDir, env })).exitCode,
-    ).toBe(0);
+    expect((await run([...cli, "install"], { cwd: projectDir, env })).exitCode).toBe(0);
 
     const up = await run([...cli, "up", "--dir", "list"], { cwd: projectDir, env });
     expect(up.exitCode).toBe(0);

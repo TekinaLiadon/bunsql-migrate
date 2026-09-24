@@ -2,7 +2,6 @@ import { describe, it, expect, beforeAll, afterAll } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { Database } from "bun:sqlite";
 import {
   migrateUp,
   migrateDown,
@@ -10,7 +9,7 @@ import {
   ChecksumDriftError,
   MigrationNotFoundError,
 } from "../src/index.js";
-import { makeScenario, readRecorded, readRowCount, readTables } from "./helpers.js";
+import { makeScenario, readRecorded, readRowCount, readTables, withSqlite } from "./helpers.js";
 
 const originalDatabaseUrl = process.env["DATABASE_URL"];
 
@@ -177,16 +176,13 @@ export { up };
       const result = await migrateDown(nodownOptions);
 
       expect(result.reverted).toEqual(["1_nodown.js"]);
-      const db = new Database(path.join(dir, "db.sqlite"));
-      try {
+      withSqlite(path.join(dir, "db.sqlite"), (db) => {
         const recorded = db
           .query<{ migration: string }, []>("SELECT migration FROM migrations")
           .all()
           .map((row) => row.migration);
         expect(recorded).not.toContain("1_nodown.js");
-      } finally {
-        db.close();
-      }
+      });
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -235,39 +231,30 @@ export { up, down };
       };
       await migrateUp(legacyOptions);
 
-      const db = new Database(legacyDbPath);
-      try {
+      withSqlite(legacyDbPath, (db) => {
         db.query("UPDATE migrations SET checksum = NULL").run();
-      } finally {
-        db.close();
-      }
+      });
 
       const result = await migrateUp(legacyOptions);
 
       expect(result.applied).toEqual([]);
-      const check = new Database(legacyDbPath);
-      try {
+      withSqlite(legacyDbPath, (check) => {
         const row = check
           .query<{ checksum: string | null }, []>(
             "SELECT checksum FROM migrations WHERE migration = '1_legacy.js'",
           )
           .get();
         expect(row?.checksum).toMatch(/^[0-9a-f]{64}$/);
-      } finally {
-        check.close();
-      }
+      });
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
   });
 
   it("returns an empty list when there is nothing to revert", async () => {
-    const db = new Database(dbPath);
-    try {
+    withSqlite(dbPath, (db) => {
       db.query("DELETE FROM migrations").run();
-    } finally {
-      db.close();
-    }
+    });
 
     const result = await migrateDown(options);
     expect(result.reverted).toEqual([]);

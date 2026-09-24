@@ -1,5 +1,6 @@
 import path from "node:path";
 import { type SQL } from "bun";
+import { MigrationFileMissingError } from "./options.js";
 
 export type MigrationStep = (tx?: SQL) => Promise<void>;
 
@@ -43,6 +44,37 @@ function hasNoTransactionDirective(content: string): boolean {
   return false;
 }
 
+function hasParameterList(step: MigrationStep): boolean {
+  const source = step.toString();
+  const open = source.indexOf("(");
+  if (open === -1) return false;
+  let depth = 0;
+  for (let index = open; index < source.length; index++) {
+    const char = source[index];
+    if (char === "(") depth++;
+    else if (char === ")") {
+      depth--;
+      if (depth === 0) {
+        return source.slice(open + 1, index).trim().length > 0;
+      }
+    }
+  }
+  return false;
+}
+
+function assertExplicitTransactionMode(
+  file: string,
+  direction: "up" | "down",
+  step: MigrationStep,
+): void {
+  if (step.length > 0 || !hasParameterList(step)) return;
+  throw new Error(
+    `${file}: ${direction}() declares its parameter with a default value or as a rest parameter — ` +
+      `function.length is 0, so the step would silently run outside the migration transaction; ` +
+      `declare the parameter without a default (async (tx) => …) or add "export const noTransaction = true" to opt out explicitly`,
+  );
+}
+
 async function sqlFilePlan(filePath: string): Promise<MigrationStepPlan> {
   const content = await Bun.file(filePath).text();
   return {
@@ -52,19 +84,26 @@ async function sqlFilePlan(filePath: string): Promise<MigrationStepPlan> {
 }
 
 export async function loadMigration(listDir: string, file: string): Promise<MigrationFunctions> {
+  const migrationPath = path.join(listDir, file);
+  if (!(await Bun.file(migrationPath).exists())) {
+    throw new MigrationFileMissingError(file);
+  }
+
   if (isSqlMigration(file)) {
-    const upPath = path.join(listDir, file);
     const downPath = path.join(listDir, sqlDownFile(file));
     return {
-      up: await sqlFilePlan(upPath),
+      up: await sqlFilePlan(migrationPath),
       down: (await Bun.file(downPath).exists()) ? await sqlFilePlan(downPath) : null,
     };
   }
 
-  const mod = await import(path.join(listDir, file));
+  const mod = await import(migrationPath);
   const noTransaction = mod.noTransaction === true;
-  return {
-    up: typeof mod.up === "function" ? { step: mod.up, noTransaction } : null,
-    down: typeof mod.down === "function" ? { step: mod.down, noTransaction } : null,
-  };
+  const up = typeof mod.up === "function" ? { step: mod.up, noTransaction } : null;
+  const down = typeof mod.down === "function" ? { step: mod.down, noTransaction } : null;
+  if (!noTransaction) {
+    if (up !== null) assertExplicitTransactionMode(file, "up", up.step);
+    if (down !== null) assertExplicitTransactionMode(file, "down", down.step);
+  }
+  return { up, down };
 }

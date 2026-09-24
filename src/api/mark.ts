@@ -1,5 +1,4 @@
-import path from "node:path";
-import { checksumFile, listFiles, MIGRATION_EXTENSIONS, resolveListDir } from "../core/fs.js";
+import { checksumFiles, listMigrationFiles, resolveListDir } from "../core/fs.js";
 import { log } from "../core/console.js";
 import { type MarkOptions, type MarkResult } from "./options.js";
 import { resolvePendingToTarget } from "./pending.js";
@@ -13,7 +12,7 @@ export async function markMigrationsApplied(options: MarkOptions = {}): Promise<
   return runWithDriver(options, async (driver) => {
     await ensureTrackingTable(driver);
 
-    const allFiles = await listFiles(listDir, MIGRATION_EXTENSIONS);
+    const allFiles = await listMigrationFiles(listDir);
     const executed = await driver.listExecuted();
 
     const { pending, targetApplied } = resolvePendingToTarget({
@@ -25,16 +24,14 @@ export async function markMigrationsApplied(options: MarkOptions = {}): Promise<
       return { marked: [] };
     }
 
-    const checksums = new Map(
-      await Promise.all(
-        pending.map(async (file) => [file, await checksumFile(path.join(listDir, file))] as const),
-      ),
-    );
+    const checksums = await checksumFiles(listDir, pending);
 
     const marked: string[] = [];
     for (const file of pending) {
       const checksum = checksums.get(file);
-      if (!checksum) continue;
+      if (checksum === undefined) {
+        throw new Error(`checksum for ${file} was not computed`);
+      }
       await driver.record(file, checksum);
       marked.push(file);
       log({ text: `${file} marked as applied`, type: "success" });

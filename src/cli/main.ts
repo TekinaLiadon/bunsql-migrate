@@ -9,20 +9,25 @@ import { createMigrationCommand, type MigrationLang } from "../api/create.js";
 import { initMigrations } from "../api/init.js";
 import { markMigrationsApplied } from "../api/mark.js";
 import { resolveSecondsOption } from "../core/duration.js";
+import { loadProjectConfig, InvalidConfigError } from "../core/config.js";
 import {
   ChecksumDriftError,
   DatabaseWaitTimeoutError,
+  InvalidMigrationNameError,
+  MigrationFileMissingError,
   MigrationLockError,
   MigrationNotFoundError,
 } from "../api/options.js";
 import { InvalidIdentifierError } from "../core/identifiers.js";
 import { log } from "../core/console.js";
+import { EXIT_PENDING, EXIT_SUCCESS, EXIT_USAGE, exitCodeForError } from "./exit-codes.js";
 
 interface CliArgs {
   command: string | undefined;
   positional: string[];
   url?: string | undefined;
   dir?: string | undefined;
+  config?: string | undefined;
   git: boolean;
   lang?: MigrationLang | undefined;
   to?: string | undefined;
@@ -37,7 +42,7 @@ interface CliArgs {
   version: boolean;
 }
 
-type FlagKey = Exclude<keyof CliArgs, "command" | "positional" | "help" | "version">;
+type FlagKey = Exclude<keyof CliArgs, "command" | "positional" | "help" | "version" | "config">;
 
 const FLAG_NAMES: Record<FlagKey, string> = {
   url: "--url",
@@ -74,7 +79,7 @@ const COMMAND_SPECS: Record<string, CommandSpec> = {
     positionalLimit: 1,
   },
   init: { flags: new Set(["dir", "lang"]), positionalLimit: 0 },
-  install: { flags: new Set(["url", "dir", "wait", "table", "schema"]), positionalLimit: 0 },
+  install: { flags: new Set(["url", "wait", "table", "schema"]), positionalLimit: 0 },
   create: { flags: new Set(["dir", "lang", "git"]), positionalLimit: 1 },
   mark: { flags: new Set(["url", "dir", "wait", "table", "schema", "all"]), positionalLimit: 1 },
   status: {
@@ -91,7 +96,7 @@ function rejectDisallowedFlags(command: string, args: CliArgs): void {
   const [extra] = args.positional.slice(spec.positionalLimit);
   if (extra !== undefined) {
     log({ text: `Unexpected argument for ${command}: ${extra}`, type: "error" });
-    usage(1);
+    usage(EXIT_USAGE);
   }
   for (const flag of Object.keys(FLAG_NAMES) as FlagKey[]) {
     const value = args[flag];
@@ -99,7 +104,7 @@ function rejectDisallowedFlags(command: string, args: CliArgs): void {
       continue;
     }
     log({ text: `${command} does not support ${FLAG_NAMES[flag]}.`, type: "error" });
-    usage(1);
+    usage(EXIT_USAGE);
   }
 }
 
@@ -111,14 +116,41 @@ function parseSecondsValue(flag: string, value: string | undefined): number {
       text: `Invalid ${flag}: ${value ?? "(missing)"} (expected a non-negative integer of seconds)`,
       type: "error",
     });
-    usage(1);
+    usage(EXIT_USAGE);
   }
+}
+
+function parseStepsArg(stepsArg: string): number {
+  try {
+    return parseSteps(Number(stepsArg));
+  } catch {
+    log({
+      text: `Invalid step count: ${stepsArg} (expected a positive integer)`,
+      type: "error",
+    });
+    usage(EXIT_USAGE);
+  }
+}
+
+function requireFlagValue(
+  argv: string[],
+  index: number,
+  flag: string,
+  description: string,
+): string {
+  const value = argv[index];
+  if (value !== undefined && value !== "" && !value.startsWith("-")) {
+    return value;
+  }
+  log({ text: `${flag} requires ${description}`, type: "error" });
+  usage(EXIT_USAGE);
 }
 
 function parseArgs(argv: string[]): CliArgs {
   const positional: string[] = [];
   let url: string | undefined;
   let dir: string | undefined;
+  let config: string | undefined;
   let git = false;
   let lang: MigrationLang | undefined;
   let to: string | undefined;
@@ -134,13 +166,11 @@ function parseArgs(argv: string[]): CliArgs {
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]!;
     if (arg === "--url") {
-      url = argv[++i];
-      if (url === undefined) {
-        log({ text: "--url requires a database URL", type: "error" });
-        usage(1);
-      }
+      url = requireFlagValue(argv, ++i, "--url", "a database URL");
     } else if (arg === "--dir") {
-      dir = argv[++i];
+      dir = requireFlagValue(argv, ++i, "--dir", "a migrations directory path");
+    } else if (arg === "--config") {
+      config = requireFlagValue(argv, ++i, "--config", "a config file path");
     } else if (arg === "--git") {
       git = true;
     } else if (arg === "--lang") {
@@ -150,31 +180,19 @@ function parseArgs(argv: string[]): CliArgs {
           text: `Unknown --lang value: ${value ?? "(missing)"} (expected js or ts)`,
           type: "error",
         });
-        usage(1);
+        usage(EXIT_USAGE);
       }
       lang = value;
     } else if (arg === "--to") {
-      to = argv[++i];
-      if (to === undefined) {
-        log({ text: "--to requires a migration file name", type: "error" });
-        usage(1);
-      }
+      to = requireFlagValue(argv, ++i, "--to", "a migration file name");
     } else if (arg === "--lock-timeout") {
       lockTimeout = parseSecondsValue("--lock-timeout", argv[++i]);
     } else if (arg === "--wait") {
       wait = parseSecondsValue("--wait", argv[++i]);
     } else if (arg === "--table") {
-      table = argv[++i];
-      if (table === undefined) {
-        log({ text: "--table requires a tracking table name", type: "error" });
-        usage(1);
-      }
+      table = requireFlagValue(argv, ++i, "--table", "a tracking table name");
     } else if (arg === "--schema") {
-      schema = argv[++i];
-      if (schema === undefined) {
-        log({ text: "--schema requires a postgres schema name", type: "error" });
-        usage(1);
-      }
+      schema = requireFlagValue(argv, ++i, "--schema", "a postgres schema name");
     } else if (arg === "--all") {
       all = true;
     } else if (arg === "--dry-run") {
@@ -186,6 +204,10 @@ function parseArgs(argv: string[]): CliArgs {
     } else if (arg === "--version") {
       version = true;
     } else {
+      if (arg === "") {
+        log({ text: "Empty argument is not allowed", type: "error" });
+        usage(EXIT_USAGE);
+      }
       positional.push(arg);
     }
   }
@@ -194,6 +216,7 @@ function parseArgs(argv: string[]): CliArgs {
     positional,
     url,
     dir,
+    config,
     git,
     lang,
     to,
@@ -211,7 +234,7 @@ function parseArgs(argv: string[]): CliArgs {
 
 function usage(exitCode: number): never {
   log({
-    text: "Usage: bunsql-native-migrate <init|up|down [n]|redo [n]|install|create [name]|mark [name]|status|version> [--url <url>] [--dir <migrations-dir>] [--to <name>] [--lock-timeout <seconds>] [--wait <seconds>] [--table <name>] [--schema <name>] [--dry-run] [--all] [--lang <js|ts>] [--git] [--strict] [--version] [--help]",
+    text: "Usage: bunsql-native-migrate <init|up|down [n]|redo [n]|install|create [name]|mark [name]|status|version> [--url <url>] [--dir <migrations-dir>] [--config <path>] [--to <name>] [--lock-timeout <seconds>] [--wait <seconds>] [--table <name>] [--schema <name>] [--dry-run] [--all] [--lang <js|ts>] [--git] [--strict] [--version] [--help]",
     type: "info",
   });
   process.exit(exitCode);
@@ -223,33 +246,45 @@ async function printVersion(): Promise<void> {
 }
 
 const args = parseArgs(process.argv.slice(2));
-const urlOptions = args.url !== undefined ? { databaseUrl: args.url } : {};
-const waitOptions = args.wait !== undefined && args.wait > 0 ? { waitTimeout: args.wait } : {};
-const listDirOptions = args.dir ? { listDir: args.dir } : {};
-const tableOptions = {
-  ...(args.table !== undefined ? { tableName: args.table } : {}),
-  ...(args.schema !== undefined ? { schema: args.schema } : {}),
-};
-const connectOptions = {
-  ...urlOptions,
-  ...listDirOptions,
-  ...tableOptions,
-  ...waitOptions,
-};
 
 if (args.help) {
-  usage(0);
+  usage(EXIT_SUCCESS);
 }
 
 if (args.version) {
   await printVersion();
-  process.exit(0);
+  process.exit(EXIT_SUCCESS);
+}
+
+if (args.command !== undefined) {
+  rejectDisallowedFlags(args.command, args);
 }
 
 try {
-  if (args.command !== undefined) {
-    rejectDisallowedFlags(args.command, args);
-  }
+  const config = args.command === "version" ? {} : await loadProjectConfig(args.config);
+
+  const databaseUrl = args.url ?? config.databaseUrl;
+  const listDir = args.dir ?? config.listDir;
+  const tableName = args.table ?? config.tableName;
+  const schema = args.schema ?? config.schema;
+  const lang = args.lang ?? config.lang;
+  const lockTimeout = args.lockTimeout ?? config.lockTimeout;
+  const waitTimeout = args.wait ?? config.waitTimeout;
+
+  const urlOptions = databaseUrl !== undefined ? { databaseUrl } : {};
+  const waitOptions = waitTimeout !== undefined && waitTimeout > 0 ? { waitTimeout } : {};
+  const listDirOptions = listDir !== undefined ? { listDir } : {};
+  const tableOptions = {
+    ...(tableName !== undefined ? { tableName } : {}),
+    ...(schema !== undefined ? { schema } : {}),
+  };
+  const connectOptions = {
+    ...urlOptions,
+    ...listDirOptions,
+    ...tableOptions,
+    ...waitOptions,
+  };
+
   switch (args.command) {
     case "version": {
       await printVersion();
@@ -258,8 +293,8 @@ try {
     case "up": {
       const { applied, planned } = await migrateUp({
         ...connectOptions,
-        ...(args.to ? { to: args.to } : {}),
-        ...(args.lockTimeout !== undefined ? { lockTimeout: args.lockTimeout } : {}),
+        ...(args.to !== undefined ? { to: args.to } : {}),
+        ...(lockTimeout !== undefined ? { lockTimeout } : {}),
         ...(args.dryRun ? { dryRun: true } : {}),
       });
       if (planned !== undefined && planned.length > 0) {
@@ -274,28 +309,20 @@ try {
       const [stepsArg] = args.positional;
       if (args.all && stepsArg !== undefined) {
         log({ text: "Use either --all or a number of steps, not both.", type: "error" });
-        usage(1);
+        usage(EXIT_USAGE);
       }
       if (args.to !== undefined && (args.all || stepsArg !== undefined)) {
         log({
           text: "Use either --to, --all, or a number of steps, not more than one of them.",
           type: "error",
         });
-        usage(1);
+        usage(EXIT_USAGE);
       }
       let steps: number | "all" = 1;
       if (args.all) {
         steps = "all";
       } else if (stepsArg !== undefined) {
-        try {
-          steps = parseSteps(Number(stepsArg));
-        } catch {
-          log({
-            text: `Invalid step count: ${stepsArg} (expected a positive integer)`,
-            type: "error",
-          });
-          usage(1);
-        }
+        steps = parseStepsArg(stepsArg);
       }
       const { reverted, planned } = await migrateDown({
         ...connectOptions,
@@ -314,25 +341,17 @@ try {
       const [stepsArg] = args.positional;
       if (stepsArg !== undefined && args.to !== undefined) {
         log({ text: "Use either --to or a step count, not both.", type: "error" });
-        usage(1);
+        usage(EXIT_USAGE);
       }
       let steps: number | undefined;
       if (stepsArg !== undefined) {
-        try {
-          steps = parseSteps(Number(stepsArg));
-        } catch {
-          log({
-            text: `Invalid step count: ${stepsArg} (expected a positive integer)`,
-            type: "error",
-          });
-          usage(1);
-        }
+        steps = parseStepsArg(stepsArg);
       }
       const { reverted } = await migrateRedo({
         ...connectOptions,
         ...(steps !== undefined ? { steps } : {}),
         ...(args.to !== undefined ? { to: args.to } : {}),
-        ...(args.lockTimeout !== undefined ? { lockTimeout: args.lockTimeout } : {}),
+        ...(lockTimeout !== undefined ? { lockTimeout } : {}),
       });
       if (reverted.length > 0) {
         log({ text: `Redid ${reverted.length} migration(s).`, type: "success" });
@@ -342,7 +361,7 @@ try {
     case "init": {
       await initMigrations({
         ...listDirOptions,
-        ...(args.lang !== undefined ? { lang: args.lang } : {}),
+        ...(lang !== undefined ? { lang } : {}),
       });
       break;
     }
@@ -353,8 +372,8 @@ try {
     case "create": {
       const [name] = args.positional;
       await createMigrationCommand({
-        ...(name ? { name } : {}),
-        ...(args.lang ? { lang: args.lang } : {}),
+        ...(name !== undefined ? { name } : {}),
+        ...(lang !== undefined ? { lang } : {}),
         git: args.git,
         ...listDirOptions,
       });
@@ -364,11 +383,11 @@ try {
       const [name] = args.positional;
       if (args.all && name !== undefined) {
         log({ text: "Use either --all or a migration file name, not both.", type: "error" });
-        usage(1);
+        usage(EXIT_USAGE);
       }
       if (!args.all && name === undefined) {
         log({ text: "mark requires a migration file name or --all.", type: "error" });
-        usage(1);
+        usage(EXIT_USAGE);
       }
       const { marked } = await markMigrationsApplied({
         ...connectOptions,
@@ -390,24 +409,27 @@ try {
       log({ text: `${applied.length} applied, ${pending.length} pending`, type: "info" });
       if (args.strict && pending.length > 0) {
         log({ text: `Strict mode: ${pending.length} pending migration(s).`, type: "warn" });
-        process.exit(1);
+        process.exit(EXIT_PENDING);
       }
       break;
     }
     default:
-      usage(1);
+      usage(EXIT_USAGE);
   }
 } catch (error) {
   if (
     error instanceof ChecksumDriftError ||
     error instanceof MigrationNotFoundError ||
+    error instanceof MigrationFileMissingError ||
     error instanceof MigrationLockError ||
     error instanceof DatabaseWaitTimeoutError ||
-    error instanceof InvalidIdentifierError
+    error instanceof InvalidIdentifierError ||
+    error instanceof InvalidConfigError ||
+    error instanceof InvalidMigrationNameError
   ) {
     log({ text: error.message, type: "error" });
   } else {
     log({ text: "Migration command failed", type: "error", error });
   }
-  process.exit(1);
+  process.exit(exitCodeForError(error));
 }

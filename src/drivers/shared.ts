@@ -28,7 +28,7 @@ export function resolveTableRef(options: DriverTableOptions, spec: TableRefSpec)
 export interface SqlLock {
   tryLock(timeoutSeconds: number): Promise<boolean>;
   releaseLock(): Promise<void>;
-  dispose(): void;
+  dispose(): void | Promise<void>;
 }
 
 export interface SqlDialect {
@@ -36,7 +36,8 @@ export interface SqlDialect {
   record(db: SQL, migration: string, checksum: string): Promise<void>;
   trackingTableExists?(db: SQL): Promise<boolean>;
   trackingTableCurrent?(db: SQL): Promise<boolean>;
-  createLock?(db: SQL): SqlLock;
+  createLock?(db: SQL, databaseUrl: string): SqlLock;
+  setupConnection?(db: SQL): Promise<void>;
 }
 
 export function createReservedLock(
@@ -83,13 +84,16 @@ export function createReservedLock(
   };
 }
 
-export function createSqlDriver(
+export async function createSqlDriver(
   databaseUrl: string,
   dialect: SqlDialect,
   table: string,
-): MigrationDriver {
+): Promise<MigrationDriver> {
   const db = new SQL(databaseUrl);
-  const lock = dialect.createLock?.(db);
+  const lock = dialect.createLock?.(db, databaseUrl);
+  if (dialect.setupConnection) {
+    await dialect.setupConnection(db);
+  }
 
   return {
     install: () => dialect.install(db),
@@ -124,7 +128,7 @@ export function createSqlDriver(
         }
       : {}),
     async close() {
-      lock?.dispose();
+      await lock?.dispose();
       db.close({ timeout: 0 });
     },
   };

@@ -131,4 +131,30 @@ describe("migrateStatus()", () => {
       scenario.cleanup();
     }
   });
+
+  it("ignores TypeScript declaration files next to the migrations", async () => {
+    const scenario = makeScenario("bunsql-status-", "status.db");
+    try {
+      writeMigration(
+        scenario.listDir,
+        "9_first.js",
+        "await tx`CREATE TABLE first_table (id INTEGER)`;",
+      );
+      writeFileSync(
+        path.join(scenario.listDir, "types.d.ts"),
+        'declare module "./migrations";\nexport {};\n',
+      );
+
+      const pending = await migrateStatus(scenario.options);
+      expect(pending.pending).toEqual(["9_first.js"]);
+
+      await migrateUp(scenario.options);
+
+      const applied = await migrateStatus(scenario.options);
+      expect(applied.applied.map((entry) => entry.name)).toEqual(["9_first.js"]);
+      expect(applied.pending).toEqual([]);
+    } finally {
+      scenario.cleanup();
+    }
+  });
 });

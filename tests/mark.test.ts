@@ -1,5 +1,4 @@
 import { describe, it, expect } from "bun:test";
-import { writeFileSync } from "node:fs";
 import path from "node:path";
 import {
   markMigrationsApplied,
@@ -8,29 +7,15 @@ import {
   MigrationNotFoundError,
 } from "../src/index.js";
 import { checksumFile } from "../src/core/fs.js";
-import { makeScenario, readRecords, readTables, runCli } from "./helpers.js";
-
-function writeTxMigration(listDir: string, file: string, table: string): void {
-  writeFileSync(
-    path.join(listDir, file),
-    `const up = async (tx) => {
-  await tx\`CREATE TABLE ${table} (id INTEGER)\`;
-};
-const down = async (tx) => {
-  await tx\`DROP TABLE ${table}\`;
-};
-export { up, down };
-`,
-  );
-}
+import { makeScenario, readRecords, readTables, runCli, writeTableMigration } from "./helpers.js";
 
 describe("markMigrationsApplied()", () => {
   it("marks every pending migration with actual checksums without running them", async () => {
     const scenario = makeScenario("bunsql-mark-", "db.sqlite");
     try {
-      writeTxMigration(scenario.listDir, "3_c.js", "c_table");
-      writeTxMigration(scenario.listDir, "2_b.js", "b_table");
-      writeTxMigration(scenario.listDir, "1_a.js", "a_table");
+      writeTableMigration(scenario.listDir, "3_c.js", "c_table");
+      writeTableMigration(scenario.listDir, "2_b.js", "b_table");
+      writeTableMigration(scenario.listDir, "1_a.js", "a_table");
 
       const { marked } = await markMigrationsApplied(scenario.options);
 
@@ -55,8 +40,8 @@ describe("markMigrationsApplied()", () => {
   it("leaves a following up a no-op without checksum drift", async () => {
     const scenario = makeScenario("bunsql-mark-", "db.sqlite");
     try {
-      writeTxMigration(scenario.listDir, "2_b.js", "b_table");
-      writeTxMigration(scenario.listDir, "1_a.js", "a_table");
+      writeTableMigration(scenario.listDir, "2_b.js", "b_table");
+      writeTableMigration(scenario.listDir, "1_a.js", "a_table");
       await markMigrationsApplied(scenario.options);
 
       const up = await migrateUp(scenario.options);
@@ -74,9 +59,9 @@ describe("markMigrationsApplied()", () => {
   it("marks up to and including the target, leaving the rest pending", async () => {
     const scenario = makeScenario("bunsql-mark-", "db.sqlite");
     try {
-      writeTxMigration(scenario.listDir, "3_c.js", "c_table");
-      writeTxMigration(scenario.listDir, "2_b.js", "b_table");
-      writeTxMigration(scenario.listDir, "1_a.js", "a_table");
+      writeTableMigration(scenario.listDir, "3_c.js", "c_table");
+      writeTableMigration(scenario.listDir, "2_b.js", "b_table");
+      writeTableMigration(scenario.listDir, "1_a.js", "a_table");
 
       const { marked } = await markMigrationsApplied({ ...scenario.options, to: "2_b.js" });
 
@@ -98,8 +83,8 @@ describe("markMigrationsApplied()", () => {
   it("is a no-op when the target is already applied", async () => {
     const scenario = makeScenario("bunsql-mark-", "db.sqlite");
     try {
-      writeTxMigration(scenario.listDir, "2_b.js", "b_table");
-      writeTxMigration(scenario.listDir, "1_a.js", "a_table");
+      writeTableMigration(scenario.listDir, "2_b.js", "b_table");
+      writeTableMigration(scenario.listDir, "1_a.js", "a_table");
       const first = await markMigrationsApplied({ ...scenario.options, to: "2_b.js" });
       expect(first.marked).toEqual(["2_b.js"]);
 
@@ -115,7 +100,7 @@ describe("markMigrationsApplied()", () => {
   it("marks nothing on a repeated run over the same history", async () => {
     const scenario = makeScenario("bunsql-mark-", "db.sqlite");
     try {
-      writeTxMigration(scenario.listDir, "1_a.js", "a_table");
+      writeTableMigration(scenario.listDir, "1_a.js", "a_table");
       await markMigrationsApplied(scenario.options);
 
       const again = await markMigrationsApplied(scenario.options);
@@ -129,7 +114,7 @@ describe("markMigrationsApplied()", () => {
   it("throws MigrationNotFoundError for an unknown target without recording anything", async () => {
     const scenario = makeScenario("bunsql-mark-", "db.sqlite");
     try {
-      writeTxMigration(scenario.listDir, "1_a.js", "a_table");
+      writeTableMigration(scenario.listDir, "1_a.js", "a_table");
 
       await expect(
         markMigrationsApplied({ ...scenario.options, to: "missing.js" }),
@@ -145,9 +130,9 @@ describe("mark CLI", () => {
   it("mark <file> marks up to and including the file", async () => {
     const scenario = makeScenario("bunsql-mark-", "db.sqlite");
     try {
-      writeTxMigration(scenario.listDir, "3_c.js", "c_table");
-      writeTxMigration(scenario.listDir, "2_b.js", "b_table");
-      writeTxMigration(scenario.listDir, "1_a.js", "a_table");
+      writeTableMigration(scenario.listDir, "3_c.js", "c_table");
+      writeTableMigration(scenario.listDir, "2_b.js", "b_table");
+      writeTableMigration(scenario.listDir, "1_a.js", "a_table");
       const env = {
         ...process.env,
         DATABASE_URL: scenario.options.databaseUrl,
@@ -168,8 +153,8 @@ describe("mark CLI", () => {
   it("mark --all marks every pending migration", async () => {
     const scenario = makeScenario("bunsql-mark-", "db.sqlite");
     try {
-      writeTxMigration(scenario.listDir, "2_b.js", "b_table");
-      writeTxMigration(scenario.listDir, "1_a.js", "a_table");
+      writeTableMigration(scenario.listDir, "2_b.js", "b_table");
+      writeTableMigration(scenario.listDir, "1_a.js", "a_table");
       const env = {
         ...process.env,
         DATABASE_URL: scenario.options.databaseUrl,
@@ -188,7 +173,7 @@ describe("mark CLI", () => {
     }
   });
 
-  it("mark without arguments exits 1", async () => {
+  it("mark without arguments exits 5", async () => {
     const scenario = makeScenario("bunsql-mark-", "db.sqlite");
     try {
       const env = {
@@ -198,7 +183,7 @@ describe("mark CLI", () => {
       };
 
       const mark = await runCli(["mark"], env);
-      expect(mark.exitCode).toBe(1);
+      expect(mark.exitCode).toBe(5);
       expect(mark.output).toContain("mark requires a migration file name or --all");
     } finally {
       scenario.cleanup();
@@ -208,7 +193,7 @@ describe("mark CLI", () => {
   it("mark rejects a file name combined with --all and an unknown target", async () => {
     const scenario = makeScenario("bunsql-mark-", "db.sqlite");
     try {
-      writeTxMigration(scenario.listDir, "1_a.js", "a_table");
+      writeTableMigration(scenario.listDir, "1_a.js", "a_table");
       const env = {
         ...process.env,
         DATABASE_URL: scenario.options.databaseUrl,
@@ -216,7 +201,7 @@ describe("mark CLI", () => {
       };
 
       const both = await runCli(["mark", "1_a.js", "--all"], env);
-      expect(both.exitCode).toBe(1);
+      expect(both.exitCode).toBe(5);
       expect(both.output).toContain("not both");
 
       const unknown = await runCli(["mark", "missing.js"], env);

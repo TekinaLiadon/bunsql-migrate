@@ -28,12 +28,19 @@ describe("log()", () => {
     }
   });
 
-  it("prints message and stack for an Error instance", () => {
+  it("prints an Error's message exactly once through the stack", () => {
     const error = new Error("failed badly");
     log({ text: "boom", type: "error", error });
-    const texts = logTexts();
-    expect(texts).toContain("failed badly");
-    expect(texts.some((text) => text.includes("at "))).toBe(true);
+    const joined = logTexts().join("\n");
+    expect(joined.split("failed badly").length - 1).toBe(1);
+    expect(logTexts().some((text) => text.includes("at "))).toBe(true);
+  });
+
+  it("prints the message once for an Error without a stack", () => {
+    const error = new Error("no-stack");
+    delete (error as { stack?: string }).stack;
+    log({ text: "boom", type: "error", error });
+    expect(logTexts().join("\n").split("no-stack").length - 1).toBe(1);
   });
 
   it("prints a table for errors with code and detail", () => {

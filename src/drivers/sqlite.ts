@@ -1,10 +1,16 @@
 import type { DriverTableOptions, MigrationDriver } from "../core/driver.js";
 import { doubleQuoted } from "../core/identifiers.js";
 import { createSqlDriver, resolveTableRef, UNIQUE_INDEX_SUFFIX } from "./shared.js";
+import { createInMemoryLock, createSqliteFileLock, sqliteLockPath } from "./sqlite-lock.js";
 
 const TABLE_NAME_MAX_LENGTH = 128;
 
-export function create(databaseUrl: string, options: DriverTableOptions = {}): MigrationDriver {
+export const DEFAULT_BUSY_TIMEOUT_MS = 30_000;
+
+export async function create(
+  databaseUrl: string,
+  options: DriverTableOptions = {},
+): Promise<MigrationDriver> {
   const { table, index, name } = resolveTableRef(options, {
     quote: doubleQuoted,
     maxLength: TABLE_NAME_MAX_LENGTH,
@@ -45,16 +51,27 @@ export function create(databaseUrl: string, options: DriverTableOptions = {}): M
         await db`INSERT OR IGNORE INTO ${db.unsafe(table)} (migration, checksum)
           VALUES (${migration}, ${checksum})`;
       },
-      createLock: (db) => ({
-        async tryLock(timeoutSeconds: number) {
-          await db.unsafe(`PRAGMA busy_timeout = ${timeoutSeconds * 1000}`);
-          return true;
-        },
-        async releaseLock() {
-          await db.unsafe("PRAGMA busy_timeout = 0");
-        },
-        dispose() {},
-      }),
+      async setupConnection(db) {
+        await db.unsafe(`PRAGMA busy_timeout = ${DEFAULT_BUSY_TIMEOUT_MS}`);
+      },
+      createLock: (_db) => {
+        const lockPath = sqliteLockPath(databaseUrl);
+        if (lockPath === null) {
+          return createInMemoryLock();
+        }
+        const fileLock = createSqliteFileLock(lockPath);
+        return {
+          async tryLock(timeoutSeconds: number) {
+            return fileLock.tryLock(timeoutSeconds);
+          },
+          async releaseLock() {
+            await fileLock.releaseLock();
+          },
+          async dispose() {
+            await fileLock.dispose();
+          },
+        };
+      },
     },
     table,
   );

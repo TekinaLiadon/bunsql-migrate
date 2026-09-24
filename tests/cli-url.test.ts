@@ -1,7 +1,7 @@
 import { describe, it, expect } from "bun:test";
 import { migrateUp } from "../src/index.js";
 import {
-  envWithoutDatabaseUrl,
+  cliEnv,
   makeScenario,
   readRecords,
   readTables,
@@ -11,9 +11,9 @@ import {
 } from "./helpers.js";
 
 function decoyEnv(decoy: Scenario, listDir: string): Record<string, string> {
-  return envWithoutDatabaseUrl({
-    DATABASE_URL: decoy.options.databaseUrl,
-    MIGRATION_LIST_DIR: listDir,
+  return cliEnv({
+    databaseUrl: decoy.options.databaseUrl,
+    listDir,
   });
 }
 
@@ -112,7 +112,7 @@ describe("CLI --url", () => {
     try {
       writeTableMigration(scenario.listDir, "1_a.js", "a_table");
 
-      const status = await runCli(["status"], envWithoutDatabaseUrl({}));
+      const status = await runCli(["status"], cliEnv());
 
       expect(status.exitCode).toBe(1);
       expect(status.output).toContain("DATABASE_URL is not set");
@@ -124,12 +124,9 @@ describe("CLI --url", () => {
   it("rejects a --url without a value", async () => {
     const scenario = makeScenario("bunsql-url-empty-", "empty.sqlite");
     try {
-      const status = await runCli(
-        ["status", "--url"],
-        envWithoutDatabaseUrl({ MIGRATION_LIST_DIR: scenario.listDir }),
-      );
+      const status = await runCli(["status", "--url"], cliEnv({ listDir: scenario.listDir }));
 
-      expect(status.exitCode).toBe(1);
+      expect(status.exitCode).toBe(5);
       expect(status.output).toContain("--url requires a database URL");
     } finally {
       scenario.cleanup();

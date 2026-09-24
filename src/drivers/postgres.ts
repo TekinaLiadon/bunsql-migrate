@@ -39,7 +39,10 @@ async function advisoryKeyComponents(lock: SQL): Promise<[number, number]> {
   return [Number((hash >> 32n) & 0x7fffffffn), Number(hash & 0x7fffffffn)];
 }
 
-export function create(databaseUrl: string, options: DriverTableOptions = {}): MigrationDriver {
+export async function create(
+  databaseUrl: string,
+  options: DriverTableOptions = {},
+): Promise<MigrationDriver> {
   const { table, index, name, schemaName } = resolvePostgresTableRef(options);
   return createSqlDriver(
     databaseUrl,

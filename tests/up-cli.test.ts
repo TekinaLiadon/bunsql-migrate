@@ -2,8 +2,15 @@ import { describe, it, expect } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { Database } from "bun:sqlite";
-import { makeScenario, readChecksums, readRecorded, readTables, runCli } from "./helpers.js";
+import {
+  cliEnv,
+  makeScenario,
+  readChecksums,
+  readRecorded,
+  readTables,
+  runCli,
+  withSqlite,
+} from "./helpers.js";
 
 interface CliScenario {
   dbPath: string;
@@ -14,11 +21,10 @@ interface CliScenario {
 
 function makeCliScenario(): CliScenario {
   const scenario = makeScenario("bunsql-migrate-");
-  const env = {
-    ...process.env,
-    DATABASE_URL: scenario.options.databaseUrl,
-    MIGRATION_LIST_DIR: scenario.listDir,
-  };
+  const env = cliEnv({
+    databaseUrl: scenario.options.databaseUrl,
+    listDir: scenario.listDir,
+  });
   return { dbPath: scenario.dbPath, listDir: scenario.listDir, env, cleanup: scenario.cleanup };
 }
 
@@ -50,10 +56,10 @@ describe("bunsql-migrate CLI", () => {
     expect(help.output).toContain("Usage: bunsql-native-migrate");
   });
 
-  it("exits with code 1 and prints usage on an unknown command", async () => {
+  it("exits with code 5 and prints usage on an unknown command", async () => {
     const { env } = makeCliScenario();
     const unknown = await runCli(["frobnicate"], env);
-    expect(unknown.exitCode).toBe(1);
+    expect(unknown.exitCode).toBe(5);
     expect(unknown.output).toContain("Usage: bunsql-native-migrate");
   });
 
@@ -140,13 +146,13 @@ describe("bunsql-migrate CLI", () => {
     }
   });
 
-  it("status --strict exits 1 while migrations are pending and 0 after up", async () => {
+  it("status --strict exits 2 while migrations are pending and 0 after up", async () => {
     const { listDir, env, cleanup } = makeCliScenario();
     try {
       writeMigration(listDir, "1_only.js", "await sql`CREATE TABLE only_table (id INTEGER)`;");
 
       const pending = await runCli(["status", "--strict"], env);
-      expect(pending.exitCode).toBe(1);
+      expect(pending.exitCode).toBe(2);
       expect(pending.output).toContain("Strict mode: 1 pending migration(s).");
 
       expect((await runCli(["up"], env)).exitCode).toBe(0);
@@ -154,6 +160,25 @@ describe("bunsql-migrate CLI", () => {
       const clean = await runCli(["status", "--strict"], env);
       expect(clean.exitCode).toBe(0);
       expect(clean.output).not.toContain("Strict mode:");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("ignores .d.ts declaration files in the migrations directory", async () => {
+    const { listDir, dbPath, env, cleanup } = makeCliScenario();
+    try {
+      writeMigration(listDir, "1_only.js", "await sql`CREATE TABLE only_table (id INTEGER)`;");
+      writeFileSync(path.join(listDir, "types.d.ts"), "export {};\n");
+
+      const up = await runCli(["up"], env);
+      expect(up.exitCode).toBe(0);
+      expect(up.output).not.toContain("types.d.ts");
+
+      const strict = await runCli(["status", "--strict"], env);
+      expect(strict.exitCode).toBe(0);
+      expect(strict.output).toContain("1 applied, 0 pending");
+      expect(readRecorded(dbPath)).toEqual(["1_only.js"]);
     } finally {
       cleanup();
     }
@@ -214,7 +239,7 @@ describe("bunsql-migrate CLI", () => {
       writeFileSync(path.join(listDir, "1_first.js"), "// tampered content\n");
       const up = await runCli(["up"], env);
 
-      expect(up.exitCode).toBe(1);
+      expect(up.exitCode).toBe(3);
       expect(up.output).toContain("1_first.js was modified after it was applied");
       expect(readRecorded(dbPath)).toEqual(["1_first.js"]);
     } finally {
@@ -240,12 +265,9 @@ describe("bunsql-migrate CLI", () => {
       writeMigration(listDir, "1_first.js", "await sql`CREATE TABLE first_table (id INTEGER)`;");
       expect((await runCli(["up"], env)).exitCode).toBe(0);
 
-      const legacy = new Database(dbPath);
-      try {
+      withSqlite(dbPath, (legacy) => {
         legacy.query("UPDATE migrations SET checksum = NULL").run();
-      } finally {
-        legacy.close();
-      }
+      });
 
       expect((await runCli(["up"], env)).exitCode).toBe(0);
       expect(readChecksums(dbPath)["1_first.js"]).toMatch(/^[0-9a-f]{64}$/);
@@ -304,11 +326,11 @@ describe("bunsql-migrate CLI", () => {
     const { env, cleanup } = makeCliScenario();
     try {
       const unknown = await runCli(["create", "x", "--lang", "py"], env);
-      expect(unknown.exitCode).toBe(1);
+      expect(unknown.exitCode).toBe(5);
       expect(unknown.output).toContain("Unknown --lang value: py");
 
       const missing = await runCli(["create", "x", "--lang"], env);
-      expect(missing.exitCode).toBe(1);
+      expect(missing.exitCode).toBe(5);
       expect(missing.output).toContain("expected js or ts");
     } finally {
       cleanup();
@@ -352,15 +374,15 @@ describe("bunsql-migrate CLI", () => {
     const { env, cleanup } = makeCliScenario();
     try {
       const notNumber = await runCli(["down", "abc"], env);
-      expect(notNumber.exitCode).toBe(1);
+      expect(notNumber.exitCode).toBe(5);
       expect(notNumber.output).toContain("Invalid step count: abc");
 
       const zero = await runCli(["down", "0"], env);
-      expect(zero.exitCode).toBe(1);
+      expect(zero.exitCode).toBe(5);
       expect(zero.output).toContain("Invalid step count: 0");
 
       const both = await runCli(["down", "2", "--all"], env);
-      expect(both.exitCode).toBe(1);
+      expect(both.exitCode).toBe(5);
       expect(both.output).toContain("not both");
     } finally {
       cleanup();

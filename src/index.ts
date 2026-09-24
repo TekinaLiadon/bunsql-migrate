@@ -5,6 +5,7 @@ import {
   type MigrationDriver,
 } from "./core/driver.js";
 import { InvalidIdentifierError } from "./core/identifiers.js";
+import { InvalidConfigError, loadProjectConfig, type ProjectConfig } from "./core/config.js";
 import { migrateUp } from "./api/up.js";
 import { migrateDown } from "./api/down.js";
 import { migrateRedo } from "./api/redo.js";
@@ -26,12 +27,15 @@ import {
   ChecksumDriftError,
   DatabaseWaitTimeoutError,
   GitStageError,
+  InvalidMigrationNameError,
+  MigrationFileMissingError,
   MigrationLockError,
   MigrationNotFoundError,
 } from "./api/options.js";
 
 export {
   createDriver,
+  loadProjectConfig,
   migrateUp,
   migrateDown,
   migrateRedo,
@@ -42,7 +46,10 @@ export {
   ChecksumDriftError,
   DatabaseWaitTimeoutError,
   GitStageError,
+  InvalidConfigError,
   InvalidIdentifierError,
+  InvalidMigrationNameError,
+  MigrationFileMissingError,
   MigrationLockError,
   MigrationNotFoundError,
 };
@@ -60,4 +67,5 @@ export type {
   MarkOptions,
   MarkResult,
   MigrateStatusResult,
+  ProjectConfig,
 };

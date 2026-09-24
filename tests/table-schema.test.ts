@@ -1,7 +1,6 @@
 import { describe, it, expect } from "bun:test";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { Database } from "bun:sqlite";
 import {
   migrateUp,
   migrateDown,
@@ -10,7 +9,7 @@ import {
   createDriver,
   InvalidIdentifierError,
 } from "../src/index.js";
-import { makeScenario, readRecorded, readTables } from "./helpers.js";
+import { makeScenario, readRecorded, readTables, withSqlite } from "./helpers.js";
 
 function writeMigration(listDir: string, file: string, table: string): void {
   writeFileSync(
@@ -121,12 +120,9 @@ describe("custom tracking table", () => {
         tableName: "legacy_migrations",
       });
 
-      const db = new Database(scenario.dbPath);
-      try {
+      withSqlite(scenario.dbPath, (db) => {
         db.query("UPDATE legacy_migrations SET checksum = NULL").run();
-      } finally {
-        db.close();
-      }
+      });
 
       const result = await migrateUp({
         databaseUrl: `sqlite:${scenario.dbPath}`,
@@ -135,17 +131,14 @@ describe("custom tracking table", () => {
       });
 
       expect(result.applied).toEqual([]);
-      const db2 = new Database(scenario.dbPath);
-      try {
+      withSqlite(scenario.dbPath, (db2) => {
         const row = db2
           .query<{ checksum: string | null }, []>(
             "SELECT checksum FROM legacy_migrations WHERE migration = '1_legacy.js'",
           )
           .get();
         expect(row?.checksum).toMatch(/^[0-9a-f]{64}$/);
-      } finally {
-        db2.close();
-      }
+      });
     } finally {
       scenario.cleanup();
     }

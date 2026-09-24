@@ -1,5 +1,4 @@
-import path from "node:path";
-import { checksumFile, listFiles, MIGRATION_EXTENSIONS, resolveListDir } from "../core/fs.js";
+import { checksumFiles, listMigrationFiles, resolveListDir } from "../core/fs.js";
 import { log } from "../core/console.js";
 import { formatDuration } from "../core/duration.js";
 import { type MigrateUpOptions, type MigrateUpResult, ChecksumDriftError } from "./options.js";
@@ -8,7 +7,7 @@ import { runMigrationStep } from "./run-step.js";
 import { loadMigration } from "./load-migration.js";
 import { resolvePendingToTarget } from "./pending.js";
 import { resolveLockTimeout, withMigrationLock } from "./lock.js";
-import { ensureTrackingTable, listExecutedForPlan } from "./tracking-table.js";
+import { loadExecutedHistory } from "./tracking-table.js";
 
 export async function migrateUp(options: MigrateUpOptions = {}): Promise<MigrateUpResult> {
   const listDir = resolveListDir(options.listDir);
@@ -17,22 +16,10 @@ export async function migrateUp(options: MigrateUpOptions = {}): Promise<Migrate
   const lockTimeout = resolveLockTimeout(options.lockTimeout);
 
   return runWithDriver(options, async (driver) => {
-    if (!dryRun) {
-      await ensureTrackingTable(driver);
-    }
-
     const run = async (): Promise<MigrateUpResult> => {
-      const allFiles = await listFiles(listDir, MIGRATION_EXTENSIONS);
-
-      const checksums = new Map(
-        await Promise.all(
-          allFiles.map(
-            async (file) => [file, await checksumFile(path.join(listDir, file))] as const,
-          ),
-        ),
-      );
-
-      const executed = dryRun ? await listExecutedForPlan(driver) : await driver.listExecuted();
+      const allFiles = await listMigrationFiles(listDir);
+      const checksums = await checksumFiles(listDir, allFiles);
+      const executed = await loadExecutedHistory(driver, dryRun);
       const executedByName = new Map(executed.map((entry) => [entry.name, entry]));
 
       for (const [file, checksum] of checksums) {
@@ -81,7 +68,9 @@ export async function migrateUp(options: MigrateUpOptions = {}): Promise<Migrate
 
       for (const file of pending) {
         const checksum = checksums.get(file);
-        if (!checksum) continue;
+        if (checksum === undefined) {
+          throw new Error(`checksum for ${file} was not computed`);
+        }
         try {
           const { up } = await loadMigration(listDir, file);
           if (up === null) {

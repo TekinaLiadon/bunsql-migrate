@@ -1,4 +1,4 @@
-import { listFiles, MIGRATION_EXTENSIONS } from "../core/fs.js";
+import { listMigrationFiles } from "../core/fs.js";
 import { log } from "../core/console.js";
 import { MigrationNotFoundError } from "./options.js";
 
@@ -29,7 +29,7 @@ export async function assertTargetOptions(
     throw new Error(`Invalid ${command} options: "to" and "steps" cannot be combined`);
   }
   if (target !== undefined) {
-    assertTargetInFiles(await listFiles(listDir, MIGRATION_EXTENSIONS), target);
+    assertTargetInFiles(await listMigrationFiles(listDir), target);
   }
 }
 
