@@ -548,7 +548,7 @@ export { up, down };
     }
   });
 
-  it("throws MigrationNotFoundError for an unknown target before applying anything", async () => {
+  it("throws MigrationNotFoundError for an unknown target without even connecting", async () => {
     const scenario = makeScenario("bunsql-to-");
     try {
       writeTableMigration(scenario.options.listDir, "1_a.js", "a_table");
@@ -556,7 +556,7 @@ export { up, down };
       await expect(migrateUp({ ...scenario.options, to: "missing.js" })).rejects.toBeInstanceOf(
         MigrationNotFoundError,
       );
-      expect(readRecorded(scenario.dbPath)).toEqual([]);
+      expect(readTables(scenario.dbPath)).toEqual([]);
     } finally {
       scenario.cleanup();
     }

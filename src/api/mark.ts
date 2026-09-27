@@ -1,13 +1,15 @@
 import { checksumFiles, listMigrationFiles, resolveListDir } from "../core/fs.js";
 import { log } from "../core/console.js";
 import { type MarkOptions, type MarkResult } from "./options.js";
-import { resolvePendingToTarget } from "./pending.js";
+import { assertTargetOptions, resolvePendingToTarget } from "./pending.js";
 import { runWithDriver } from "./run-with-driver.js";
 import { ensureTrackingTable } from "./tracking-table.js";
 
 export async function markMigrationsApplied(options: MarkOptions = {}): Promise<MarkResult> {
   const listDir = resolveListDir(options.listDir);
   const target = options.to;
+
+  await assertTargetOptions("mark", listDir, target, undefined);
 
   return runWithDriver(options, async (driver) => {
     await ensureTrackingTable(driver);

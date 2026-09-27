@@ -1,3 +1,5 @@
+import { noColorRequested } from "./env.js";
+
 const colors = {
   success: "\x1b[32m%s\x1b[0m",
   warn: "\x1b[33m%s\x1b[0m",
@@ -11,6 +13,10 @@ interface LogOptions {
   text: string;
   type: LogLevel;
   error?: unknown;
+}
+
+function colorEnabled(): boolean {
+  return process.stdout.isTTY === true && !noColorRequested();
 }
 
 function formatError(error: unknown): void {
@@ -44,7 +50,7 @@ function formatError(error: unknown): void {
 }
 
 export function log({ text, type, error = null }: LogOptions): void {
-  console.log(colors[type], text);
+  console.log(colorEnabled() ? colors[type] : "%s", text);
   if (!error) return;
   formatError(error);
 }

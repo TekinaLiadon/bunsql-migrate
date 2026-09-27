@@ -6,22 +6,90 @@ type ConsoleSpy = ReturnType<typeof spyOn<typeof console, "log">>;
 let logSpy: ConsoleSpy;
 let tableSpy: ConsoleSpy;
 
+const originalIsTTY = Object.getOwnPropertyDescriptor(process.stdout, "isTTY");
+let originalNoColor: string | undefined;
+
 beforeEach(() => {
   logSpy = spyOn(console, "log");
   tableSpy = spyOn(console, "table");
+  originalNoColor = process.env["NO_COLOR"];
 });
 
 afterEach(() => {
   logSpy.mockRestore();
   tableSpy.mockRestore();
+  if (originalIsTTY === undefined) {
+    delete (process.stdout as { isTTY?: boolean }).isTTY;
+  } else {
+    Object.defineProperty(process.stdout, "isTTY", originalIsTTY);
+  }
+  if (originalNoColor === undefined) {
+    delete process.env["NO_COLOR"];
+  } else {
+    process.env["NO_COLOR"] = originalNoColor;
+  }
 });
+
+function stubIsTTY(value: boolean): void {
+  Object.defineProperty(process.stdout, "isTTY", {
+    value,
+    configurable: true,
+    writable: true,
+  });
+}
 
 function logTexts(): string[] {
   return logSpy.mock.calls.flatMap((call) => call.map((arg) => String(arg)));
 }
 
+function firstArg(): string {
+  return String(logSpy.mock.calls.at(-1)?.[0]);
+}
+
+describe("log() colors", () => {
+  it("prints the level color when stdout is a TTY", () => {
+    stubIsTTY(true);
+    for (const [type, code] of [
+      ["success", "\x1b[32m"],
+      ["warn", "\x1b[33m"],
+      ["error", "\x1b[31m"],
+    ] as const) {
+      log({ text: `msg_${type}`, type });
+      expect(firstArg()).toContain(code);
+      expect(logTexts()).toContain(`msg_${type}`);
+    }
+  });
+
+  it("prints plain text when stdout is not a TTY", () => {
+    stubIsTTY(false);
+    log({ text: "piped", type: "success" });
+    expect(firstArg()).toBe("%s");
+    expect(logTexts()).toContain("piped");
+
+    delete (process.stdout as { isTTY?: boolean }).isTTY;
+    log({ text: "unknown-tty", type: "warn" });
+    expect(firstArg()).toBe("%s");
+    expect(logTexts()).toContain("unknown-tty");
+  });
+
+  it("prints plain text when NO_COLOR is set, even on a TTY", () => {
+    stubIsTTY(true);
+    process.env["NO_COLOR"] = "1";
+    log({ text: "no-color", type: "success" });
+    expect(firstArg()).toBe("%s");
+    expect(logTexts()).toContain("no-color");
+  });
+
+  it("treats an empty NO_COLOR as not requested", () => {
+    stubIsTTY(true);
+    process.env["NO_COLOR"] = "";
+    log({ text: "empty-no-color", type: "success" });
+    expect(firstArg()).toContain("\x1b[32m");
+  });
+});
+
 describe("log()", () => {
-  it("prints the text with the chosen level color", () => {
+  it("prints the text for every level", () => {
     for (const type of ["success", "warn", "error", "info"] as const) {
       log({ text: `msg_${type}`, type });
       expect(logTexts()).toContain(`msg_${type}`);

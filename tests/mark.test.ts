@@ -111,7 +111,7 @@ describe("markMigrationsApplied()", () => {
     }
   });
 
-  it("throws MigrationNotFoundError for an unknown target without recording anything", async () => {
+  it("throws MigrationNotFoundError for an unknown target without even connecting", async () => {
     const scenario = makeScenario("bunsql-mark-", "db.sqlite");
     try {
       writeTableMigration(scenario.listDir, "1_a.js", "a_table");
@@ -119,7 +119,7 @@ describe("markMigrationsApplied()", () => {
       await expect(
         markMigrationsApplied({ ...scenario.options, to: "missing.js" }),
       ).rejects.toBeInstanceOf(MigrationNotFoundError);
-      expect(readRecords(scenario.dbPath)).toEqual([]);
+      expect(readTables(scenario.dbPath)).toEqual([]);
     } finally {
       scenario.cleanup();
     }
@@ -207,7 +207,7 @@ describe("mark CLI", () => {
       const unknown = await runCli(["mark", "missing.js"], env);
       expect(unknown.exitCode).toBe(1);
       expect(unknown.output).toContain("missing.js is not in the migrations directory");
-      expect(readRecords(scenario.dbPath)).toEqual([]);
+      expect(readTables(scenario.dbPath)).toEqual([]);
     } finally {
       scenario.cleanup();
     }

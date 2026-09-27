@@ -87,6 +87,50 @@ describe("MigrationDriver — MariaDB (integration)", () => {
     }
   });
 
+  itWithMariaDb("survives a concurrent legacy-table upgrade from two connections", async () => {
+    const baseUrl = new URL(DATABASE_URL as string);
+    const legacyDb = `legacy_race_${Date.now()}`;
+    baseUrl.pathname = `/${legacyDb}`;
+    const legacyUrl = baseUrl.toString();
+
+    const admin = new SQL(DATABASE_URL as string);
+    try {
+      await admin.unsafe(`DROP DATABASE IF EXISTS ${legacyDb}`);
+      await admin.unsafe(`CREATE DATABASE ${legacyDb}`);
+    } finally {
+      admin.close({ timeout: 0 });
+    }
+
+    const legacy = new SQL(legacyUrl);
+    try {
+      await legacy`CREATE TABLE migrations (
+          id INTEGER PRIMARY KEY AUTO_INCREMENT,
+          migration VARCHAR(255) NOT NULL
+        )`;
+      await legacy`INSERT INTO migrations (migration) VALUES ('1_legacy_race.js')`;
+    } finally {
+      legacy.close({ timeout: 0 });
+    }
+
+    const first = await createDriver(legacyUrl);
+    const second = await createDriver(legacyUrl);
+    try {
+      await Promise.all([first.install(), second.install()]);
+      expect(await first.listExecuted()).toEqual([{ name: "1_legacy_race.js", checksum: null }]);
+      await first.remove("1_legacy_race.js");
+    } finally {
+      await first.close();
+      await second.close();
+    }
+
+    const cleanup = new SQL(DATABASE_URL as string);
+    try {
+      await cleanup.unsafe(`DROP DATABASE ${legacyDb}`);
+    } finally {
+      cleanup.close({ timeout: 0 });
+    }
+  });
+
   itWithMariaDb("transaction() commits and rolls back through the tx client", async () => {
     const driver = await createDriver(DATABASE_URL as string);
     try {

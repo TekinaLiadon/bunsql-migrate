@@ -227,6 +227,10 @@ console.log("API-SMOKE-OK", executed.length);
     writeFileSync(
       path.join(projectDir, "types-probe.ts"),
       `import {
+  type CreateOptions,
+  type InitOptions,
+  type InitResult,
+  type MigrationLang,
   type MigrateUpResult,
   type MigrateStatusResult,
   migrateUp,
@@ -236,7 +240,17 @@ console.log("API-SMOKE-OK", executed.length);
 const result: MigrateUpResult = await migrateUp({ databaseUrl: "sqlite:./types-probe.db" });
 const applied: string[] = result.applied;
 const status: MigrateStatusResult = await migrateStatus({ databaseUrl: "sqlite:./types-probe.db" });
-console.log(applied.length, status.pending.length);
+const lang: MigrationLang = "ts";
+const createOptions: CreateOptions = { name: "types_probe", lang, listDir: "./types-list" };
+const initOptions: InitOptions = { listDir: "./types-list" };
+const initResult: InitResult = { created: true, filename: null };
+console.log(
+  applied.length,
+  status.pending.length,
+  createOptions.name,
+  initOptions.listDir,
+  initResult.created,
+);
 `,
     );
     writeFileSync(

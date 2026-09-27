@@ -23,6 +23,8 @@ describe("formatDuration()", () => {
 
   it("promotes a fraction that rounds up to a full second", () => {
     expect(formatDuration(999.7)).toBe("1.0s");
+    expect(formatDuration(999.5)).toBe("1.0s");
+    expect(formatDuration(999.6)).toBe("1.0s");
     expect(formatDuration(999.4)).toBe("999ms");
   });
 });

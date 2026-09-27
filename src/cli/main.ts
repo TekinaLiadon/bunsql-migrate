@@ -8,7 +8,6 @@ import { installMigrations } from "../api/install.js";
 import { createMigrationCommand, type MigrationLang } from "../api/create.js";
 import { initMigrations } from "../api/init.js";
 import { markMigrationsApplied } from "../api/mark.js";
-import { resolveSecondsOption } from "../core/duration.js";
 import { loadProjectConfig, InvalidConfigError } from "../core/config.js";
 import {
   ChecksumDriftError,
@@ -108,16 +107,17 @@ function rejectDisallowedFlags(command: string, args: CliArgs): void {
   }
 }
 
+const SECONDS_PATTERN = /^\d+$/;
+
 function parseSecondsValue(flag: string, value: string | undefined): number {
-  try {
-    return resolveSecondsOption(flag, Number(value), 0);
-  } catch {
-    log({
-      text: `Invalid ${flag}: ${value ?? "(missing)"} (expected a non-negative integer of seconds)`,
-      type: "error",
-    });
-    usage(EXIT_USAGE);
+  if (value !== undefined && SECONDS_PATTERN.test(value)) {
+    return Number(value);
   }
+  log({
+    text: `Invalid ${flag}: ${value === undefined || value === "" ? "(missing)" : value} (expected a non-negative integer of seconds)`,
+    type: "error",
+  });
+  usage(EXIT_USAGE);
 }
 
 function parseStepsArg(stepsArg: string): number {

@@ -164,6 +164,44 @@ describe("CLI per-command flag validation", () => {
     }
   });
 
+  it("rejects an empty value for the numeric flags instead of reading it as zero", async () => {
+    const scenario = makeScenario("bunsql-flags-empty-numeric-", "db.sqlite");
+    try {
+      writeTableMigration(scenario.listDir, "1_a.js", "a_table");
+
+      const lockTimeout = await runCli(["up", "--lock-timeout", ""], envFor(scenario));
+      expect(lockTimeout.exitCode).toBe(5);
+      expect(lockTimeout.output).toContain("Invalid --lock-timeout");
+
+      const wait = await runCli(["up", "--wait", ""], envFor(scenario));
+      expect(wait.exitCode).toBe(5);
+      expect(wait.output).toContain("Invalid --wait");
+
+      expect(readTables(scenario.dbPath)).not.toContain("a_table");
+    } finally {
+      scenario.cleanup();
+    }
+  });
+
+  it("accepts only plain decimal digits for the numeric flags", async () => {
+    const scenario = makeScenario("bunsql-flags-numeric-forms-", "db.sqlite");
+    try {
+      writeTableMigration(scenario.listDir, "1_a.js", "a_table");
+
+      for (const value of [" 5", "0x10", "1.5", "-1", "+5", "5s", "--dry-run"]) {
+        const run = await runCli(["up", "--lock-timeout", value], envFor(scenario));
+        expect(run.exitCode).toBe(5);
+        expect(run.output).toContain("Invalid --lock-timeout");
+      }
+
+      const applied = await runCli(["up", "--lock-timeout", "0"], envFor(scenario));
+      expect(applied.exitCode).toBe(0);
+      expect(applied.output).toContain("Applied 1 migration(s)");
+    } finally {
+      scenario.cleanup();
+    }
+  });
+
   it("no longer accepts --dir for install", async () => {
     const scenario = makeScenario("bunsql-flags-install-dir-", "db.sqlite");
     try {

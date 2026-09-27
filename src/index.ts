@@ -11,7 +11,8 @@ import { migrateDown } from "./api/down.js";
 import { migrateRedo } from "./api/redo.js";
 import { migrateStatus } from "./api/status.js";
 import { installMigrations } from "./api/install.js";
-import { createMigration } from "./api/create.js";
+import { createMigration, type CreateOptions, type MigrationLang } from "./api/create.js";
+import { initMigrations, type InitOptions, type InitResult } from "./api/init.js";
 import { markMigrationsApplied } from "./api/mark.js";
 import {
   type MigrateDownOptions,
@@ -42,6 +43,7 @@ export {
   migrateStatus,
   installMigrations,
   createMigration,
+  initMigrations,
   markMigrationsApplied,
   ChecksumDriftError,
   DatabaseWaitTimeoutError,
@@ -67,5 +69,9 @@ export type {
   MarkOptions,
   MarkResult,
   MigrateStatusResult,
+  CreateOptions,
+  MigrationLang,
+  InitOptions,
+  InitResult,
   ProjectConfig,
 };

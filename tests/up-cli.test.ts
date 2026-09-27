@@ -407,12 +407,15 @@ describe("bunsql-migrate CLI", () => {
     }
   });
 
-  it("up --to with an unknown name exits 1", async () => {
-    const { env, cleanup } = makeCliScenario();
+  it("up --to with an unknown name exits 1 without creating the tracking table", async () => {
+    const { dbPath, listDir, env, cleanup } = makeCliScenario();
     try {
+      writeMigration(listDir, "1_a.js", "await sql`CREATE TABLE a_table (id INTEGER)`;");
+
       const result = await runCli(["up", "--to", "nope.js"], env);
       expect(result.exitCode).toBe(1);
       expect(result.output).toContain("nope.js is not in the migrations directory");
+      expect(readTables(dbPath)).toEqual([]);
     } finally {
       cleanup();
     }

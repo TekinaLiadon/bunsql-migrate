@@ -66,6 +66,41 @@ describe("MigrationDriver — SQLite (integration)", () => {
     }
   });
 
+  it("survives a concurrent legacy-table upgrade from two connections", async () => {
+    const databaseUrl = `sqlite://${join(tempDir, "upgrade-race.db")}`;
+    const seed = new SQL(databaseUrl);
+    await seed`CREATE TABLE IF NOT EXISTS migrations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      migration TEXT NOT NULL
+    )`;
+    await seed`INSERT INTO migrations (migration) VALUES ('1_upgrade_race.js')`;
+    await seed.close();
+
+    const first = await createDriver(databaseUrl);
+    const second = await createDriver(databaseUrl);
+    try {
+      await Promise.all([first.install(), second.install()]);
+
+      expect(await first.listExecuted()).toEqual([{ name: "1_upgrade_race.js", checksum: null }]);
+
+      withSqlite(join(tempDir, "upgrade-race.db"), (db) => {
+        const columns = db
+          .query<{ name: string }, []>("SELECT name FROM pragma_table_info('migrations')")
+          .all()
+          .map((row) => row.name);
+        expect(columns).toContain("checksum");
+        const indexes = db
+          .query<{ name: string }, []>("SELECT name FROM sqlite_master WHERE type = 'index'")
+          .all()
+          .map((row) => row.name);
+        expect(indexes).toContain("migrations_migration_unique");
+      });
+    } finally {
+      await first.close();
+      await second.close();
+    }
+  });
+
   it("runs the full cycle against a custom tableName without creating the default table", async () => {
     const driver = await createDriver(`sqlite://${join(tempDir, "custom.db")}`, {
       tableName: "app_migrations",

@@ -3,8 +3,30 @@ import { log } from "../core/console.js";
 import { type RedoOptions, type RedoResult } from "./options.js";
 import { migrateDown, parseSteps } from "./down.js";
 import { migrateUp } from "./up.js";
-import { migrateStatus } from "./status.js";
+import { runWithDriver } from "./run-with-driver.js";
+import { listExecutedForPlan } from "./tracking-table.js";
 import { assertTargetOptions } from "./pending.js";
+
+async function warnPartialRevert(
+  options: RedoOptions,
+  appliedNames: readonly string[],
+): Promise<void> {
+  const current = await runWithDriver(options, (driver) => listExecutedForPlan(driver)).catch(
+    () => undefined,
+  );
+  if (current === undefined) {
+    return;
+  }
+  const recorded = new Set(current.map((entry) => entry.name));
+  const revertedNames = appliedNames.filter((name) => !recorded.has(name));
+  if (revertedNames.length === 0) {
+    return;
+  }
+  log({
+    text: "Redo: the down phase failed — the rollbacks above stay reverted; run up to re-apply them",
+    type: "warn",
+  });
+}
 
 export async function migrateRedo(options: RedoOptions = {}): Promise<RedoResult> {
   const listDir = resolveListDir(options.listDir);
@@ -13,7 +35,7 @@ export async function migrateRedo(options: RedoOptions = {}): Promise<RedoResult
 
   await assertTargetOptions("redo", listDir, target, options.steps);
 
-  const { applied } = await migrateStatus(options);
+  const applied = await runWithDriver(options, (driver) => listExecutedForPlan(driver));
   const lastApplied = applied.at(-1)?.name;
   if (lastApplied === undefined) {
     log({ text: "No migrations to redo.", type: "warn" });
@@ -38,6 +60,8 @@ export async function migrateRedo(options: RedoOptions = {}): Promise<RedoResult
         text: "Redo: the up phase failed — the rollbacks above stay reverted; run up to re-apply them",
         type: "warn",
       });
+    } else {
+      await warnPartialRevert(options, appliedNames);
     }
     throw error;
   }

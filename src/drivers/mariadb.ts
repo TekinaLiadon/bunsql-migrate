@@ -4,6 +4,7 @@ import { backtickQuoted } from "../core/identifiers.js";
 import {
   createReservedLock,
   createSqlDriver,
+  createWhenMissing,
   resolveTableRef,
   UNIQUE_INDEX_SUFFIX,
 } from "./shared.js";
@@ -46,12 +47,18 @@ export async function create(
           checksum VARCHAR(64),
           CONSTRAINT ${db.unsafe(index)} UNIQUE (migration)
         )`;
-        if (!(await checksumColumnExists(db, name))) {
-          await db`ALTER TABLE ${db.unsafe(table)} ADD COLUMN checksum VARCHAR(64)`;
-        }
-        if (!(await uniqueIndexExists(db, name))) {
-          await db`CREATE UNIQUE INDEX ${db.unsafe(index)} ON ${db.unsafe(table)} (migration)`;
-        }
+        await createWhenMissing(
+          () => checksumColumnExists(db, name),
+          async () => {
+            await db`ALTER TABLE ${db.unsafe(table)} ADD COLUMN checksum VARCHAR(64)`;
+          },
+        );
+        await createWhenMissing(
+          () => uniqueIndexExists(db, name),
+          async () => {
+            await db`CREATE UNIQUE INDEX ${db.unsafe(index)} ON ${db.unsafe(table)} (migration)`;
+          },
+        );
       },
       async trackingTableExists(db) {
         const rows = await db`SELECT 1 FROM information_schema.tables

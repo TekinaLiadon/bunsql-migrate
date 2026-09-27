@@ -84,6 +84,38 @@ export function createReservedLock(
   };
 }
 
+function duplicateObjectCode(error: unknown): unknown {
+  if (error !== null && typeof error === "object" && "code" in error) {
+    return (error as { code: unknown }).code;
+  }
+  return undefined;
+}
+
+function isDuplicateObjectError(error: unknown): boolean {
+  const code = duplicateObjectCode(error);
+  if (code === 1060 || code === 1061 || code === "ER_DUP_FIELDNAME" || code === "ER_DUP_KEYNAME") {
+    return true;
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  return /duplicate column name|duplicate key name/i.test(message);
+}
+
+export async function createWhenMissing(
+  probe: () => Promise<boolean>,
+  action: () => Promise<void>,
+): Promise<void> {
+  if (await probe()) {
+    return;
+  }
+  try {
+    await action();
+  } catch (error) {
+    if (!isDuplicateObjectError(error) || !(await probe())) {
+      throw error;
+    }
+  }
+}
+
 export async function createSqlDriver(
   databaseUrl: string,
   dialect: SqlDialect,

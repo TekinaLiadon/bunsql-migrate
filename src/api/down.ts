@@ -7,7 +7,7 @@ import { runWithDriver } from "./run-with-driver.js";
 import { runMigrationStep } from "./run-step.js";
 import { isSqlMigration, loadMigration } from "./load-migration.js";
 import { assertTargetOptions } from "./pending.js";
-import { resolveLockTimeout, withMigrationLock } from "./lock.js";
+import { DEFAULT_LOCK_TIMEOUT_SECONDS, withMigrationLock } from "./lock.js";
 import { loadExecutedHistory } from "./tracking-table.js";
 
 export function parseSteps(steps: number | undefined): number;
@@ -96,6 +96,6 @@ export async function migrateDown(options: MigrateDownOptions = {}): Promise<Mig
     if (dryRun) {
       return run();
     }
-    return withMigrationLock(driver, resolveLockTimeout(undefined), run);
+    return withMigrationLock(driver, DEFAULT_LOCK_TIMEOUT_SECONDS, run);
   });
 }

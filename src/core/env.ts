@@ -9,3 +9,8 @@ export function getDatabaseUrl(override?: string): string {
 export function getMigrationListDir(): string | undefined {
   return process.env["MIGRATION_LIST_DIR"];
 }
+
+export function noColorRequested(): boolean {
+  const value = process.env["NO_COLOR"];
+  return value !== undefined && value !== "";
+}

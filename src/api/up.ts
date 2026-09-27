@@ -5,7 +5,7 @@ import { type MigrateUpOptions, type MigrateUpResult, ChecksumDriftError } from 
 import { runWithDriver } from "./run-with-driver.js";
 import { runMigrationStep } from "./run-step.js";
 import { loadMigration } from "./load-migration.js";
-import { resolvePendingToTarget } from "./pending.js";
+import { assertTargetOptions, resolvePendingToTarget } from "./pending.js";
 import { resolveLockTimeout, withMigrationLock } from "./lock.js";
 import { loadExecutedHistory } from "./tracking-table.js";
 
@@ -14,6 +14,8 @@ export async function migrateUp(options: MigrateUpOptions = {}): Promise<Migrate
   const target = options.to;
   const dryRun = options.dryRun ?? false;
   const lockTimeout = resolveLockTimeout(options.lockTimeout);
+
+  await assertTargetOptions("up", listDir, target, undefined);
 
   return runWithDriver(options, async (driver) => {
     const run = async (): Promise<MigrateUpResult> => {

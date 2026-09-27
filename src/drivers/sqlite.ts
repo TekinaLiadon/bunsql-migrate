@@ -1,11 +1,24 @@
+import type { SQL } from "bun";
 import type { DriverTableOptions, MigrationDriver } from "../core/driver.js";
 import { doubleQuoted } from "../core/identifiers.js";
-import { createSqlDriver, resolveTableRef, UNIQUE_INDEX_SUFFIX } from "./shared.js";
+import {
+  createSqlDriver,
+  createWhenMissing,
+  resolveTableRef,
+  UNIQUE_INDEX_SUFFIX,
+} from "./shared.js";
 import { createInMemoryLock, createSqliteFileLock, sqliteLockPath } from "./sqlite-lock.js";
 
 const TABLE_NAME_MAX_LENGTH = 128;
 
 export const DEFAULT_BUSY_TIMEOUT_MS = 30_000;
+
+async function hasChecksumColumn(db: SQL, table: string): Promise<boolean> {
+  const columns = (await db.unsafe(`PRAGMA table_info(${table})`)) as Array<{
+    name: string;
+  }>;
+  return columns.some((column) => column.name === "checksum");
+}
 
 export async function create(
   databaseUrl: string,
@@ -24,13 +37,12 @@ export async function create(
           migration TEXT NOT NULL,
           checksum TEXT
         )`;
-        const columns = (await db.unsafe(`PRAGMA table_info(${table})`)) as Array<{
-          name: string;
-        }>;
-        const hasChecksum = columns.some((column) => column.name === "checksum");
-        if (!hasChecksum) {
-          await db`ALTER TABLE ${db.unsafe(table)} ADD COLUMN checksum TEXT`;
-        }
+        await createWhenMissing(
+          () => hasChecksumColumn(db, table),
+          async () => {
+            await db`ALTER TABLE ${db.unsafe(table)} ADD COLUMN checksum TEXT`;
+          },
+        );
         await db`CREATE UNIQUE INDEX IF NOT EXISTS ${db.unsafe(index)} ON ${db.unsafe(table)} (migration)`;
       },
       async trackingTableExists(db) {
@@ -38,10 +50,7 @@ export async function create(
         return rows.length > 0;
       },
       async trackingTableCurrent(db) {
-        const columns = (await db.unsafe(`PRAGMA table_info(${table})`)) as Array<{
-          name: string;
-        }>;
-        if (!columns.some((column) => column.name === "checksum")) return false;
+        if (!(await hasChecksumColumn(db, table))) return false;
         const indexName = `${name}${UNIQUE_INDEX_SUFFIX}`;
         const indexes = (await db`SELECT 1 FROM sqlite_master WHERE type = 'index'
           AND name = ${indexName}`) as Array<unknown>;

@@ -63,7 +63,7 @@ interface TargetOutcome {
 
 function isReachable(url: string): Promise<boolean> {
   const parsed = new URL(url);
-  const port = Number(parsed.port) || (parsed.protocol === "https:" ? 443 : 80);
+  const port = Number(parsed.port);
   return new Promise((resolve) => {
     const socket = createConnection({ host: parsed.hostname, port });
     const settle = (result: boolean) => {
@@ -109,6 +109,14 @@ function printSummary(outcomes: TargetOutcome[]): void {
 }
 
 const filters = process.argv.slice(2);
+for (const target of TARGETS) {
+  if (new URL(target.url).port === "") {
+    console.error(
+      `Matrix target ${target.name}: URL must include an explicit port — ${target.url}`,
+    );
+    process.exit(2);
+  }
+}
 const unknown = filters.filter((name) => !TARGETS.some((target) => target.name === name));
 if (unknown.length > 0) {
   console.error(

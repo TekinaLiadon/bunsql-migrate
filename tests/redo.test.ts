@@ -168,6 +168,7 @@ describe("migrateRedo()", () => {
       const result = await migrateRedo(scenario.options);
 
       expect(result).toEqual({ reverted: [], applied: [] });
+      expect(readTables(scenario.dbPath)).toEqual([]);
       const status = await migrateStatus(scenario.options);
       expect(status.applied).toEqual([]);
       expect(status.pending).toEqual(["3_a.js", "2_b.js"]);
@@ -192,6 +193,32 @@ describe("migrateRedo()", () => {
 
       expect(readRecords(scenario.dbPath).map((record) => record.migration)).toEqual(["2_base.js"]);
       expect(readTables(scenario.dbPath)).toContain("broken_table");
+    } finally {
+      scenario.cleanup();
+    }
+  });
+
+  it("keeps the partially reverted state visible when the down phase fails mid-way", async () => {
+    const scenario = makeScenario("bunsql-redo-", "db.sqlite");
+    try {
+      writeTableMigration(scenario.listDir, "3_a.js", "a_table");
+      writeMigration(
+        scenario.listDir,
+        "2_broken_down.js",
+        "await tx`CREATE TABLE b_table (id INTEGER)`;",
+        "await tx`SELECT * FROM missing_table`;",
+      );
+      writeTableMigration(scenario.listDir, "1_c.js", "c_table");
+      await migrateUp(scenario.options);
+
+      await expect(migrateRedo({ ...scenario.options, steps: 2 })).rejects.toThrow(/missing_table/);
+
+      expect(readRecords(scenario.dbPath).map((record) => record.migration)).toEqual([
+        "3_a.js",
+        "2_broken_down.js",
+      ]);
+      expect(readTables(scenario.dbPath)).not.toContain("c_table");
+      expect(readTables(scenario.dbPath)).toContain("b_table");
     } finally {
       scenario.cleanup();
     }
@@ -365,6 +392,7 @@ describe("redo CLI", () => {
       const fresh = await runCli(["redo"], env);
       expect(fresh.exitCode).toBe(0);
       expect(fresh.output).toContain("No migrations to redo.");
+      expect(readTables(scenario.dbPath)).toEqual([]);
 
       await migrateUp({ ...scenario.options, to: "2_b.js" });
       const unapplied = await runCli(["redo", "--to", "1_a.js"], env);
@@ -396,8 +424,70 @@ describe("redo CLI", () => {
 
       expect(redo.exitCode).toBe(1);
       expect(redo.output).toContain("1_broken.js rolled back");
+      expect(redo.output).toContain("the up phase failed");
       expect(redo.output).toContain("stay reverted");
       expect(readRecords(scenario.dbPath).map((record) => record.migration)).toEqual(["2_base.js"]);
+    } finally {
+      scenario.cleanup();
+    }
+  });
+
+  it("points at the partial revert with a down-phase hint when a rollback fails mid-way", async () => {
+    const scenario = makeScenario("bunsql-redo-", "db.sqlite");
+    try {
+      writeTableMigration(scenario.listDir, "3_a.js", "a_table");
+      writeMigration(
+        scenario.listDir,
+        "2_broken_down.js",
+        "await tx`CREATE TABLE b_table (id INTEGER)`;",
+        "await tx`SELECT * FROM missing_table`;",
+      );
+      writeTableMigration(scenario.listDir, "1_c.js", "c_table");
+      await migrateUp(scenario.options);
+      const env = {
+        ...process.env,
+        DATABASE_URL: scenario.options.databaseUrl,
+        MIGRATION_LIST_DIR: scenario.listDir,
+      };
+
+      const redo = await runCli(["redo", "2"], env);
+
+      expect(redo.exitCode).toBe(1);
+      expect(redo.output).toContain("1_c.js rolled back");
+      expect(redo.output).toContain("2_broken_down.js rollback failed");
+      expect(redo.output).toContain("the down phase failed");
+      expect(redo.output).toContain("stay reverted");
+      expect(redo.output).not.toContain("the up phase failed");
+      expect(readRecords(scenario.dbPath).map((record) => record.migration)).toEqual([
+        "3_a.js",
+        "2_broken_down.js",
+      ]);
+    } finally {
+      scenario.cleanup();
+    }
+  });
+
+  it("prints no down-phase hint when the very first rollback fails and nothing was reverted", async () => {
+    const scenario = makeScenario("bunsql-redo-", "db.sqlite");
+    try {
+      writeMigration(
+        scenario.listDir,
+        "1_broken.js",
+        "await tx`CREATE TABLE broken_table (id INTEGER)`;",
+        "await tx`SELECT * FROM missing_table`;",
+      );
+      await migrateUp(scenario.options);
+      const env = {
+        ...process.env,
+        DATABASE_URL: scenario.options.databaseUrl,
+        MIGRATION_LIST_DIR: scenario.listDir,
+      };
+
+      const redo = await runCli(["redo"], env);
+
+      expect(redo.exitCode).toBe(1);
+      expect(redo.output).toContain("1_broken.js rollback failed");
+      expect(redo.output).not.toContain("stay reverted");
     } finally {
       scenario.cleanup();
     }
