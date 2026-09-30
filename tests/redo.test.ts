@@ -126,6 +126,79 @@ describe("migrateRedo()", () => {
     }
   });
 
+  it("keeps migrations that were pending and sort newer out of the redo window", async () => {
+    const scenario = makeScenario("bunsql-redo-", "db.sqlite");
+    try {
+      writeTableMigration(scenario.listDir, "3_c.js", "c_table");
+      writeTableMigration(scenario.listDir, "2_b.js", "b_table");
+      writeTableMigration(scenario.listDir, "1_a.js", "a_table");
+      await migrateUp(scenario.options);
+      writeTableMigration(scenario.listDir, "5_e.js", "e_table");
+      writeTableMigration(scenario.listDir, "4_d.js", "d_table");
+
+      const result = await migrateRedo({ ...scenario.options, steps: 1 });
+
+      expect(result.reverted).toEqual(["1_a.js"]);
+      expect(result.applied).toEqual(["1_a.js"]);
+      expect(readRecords(scenario.dbPath).map((record) => record.migration)).toEqual([
+        "3_c.js",
+        "2_b.js",
+        "1_a.js",
+      ]);
+      expect(readTables(scenario.dbPath)).not.toContain("d_table");
+      expect(readTables(scenario.dbPath)).not.toContain("e_table");
+      const status = await migrateStatus(scenario.options);
+      expect(status.applied.map((entry) => entry.name)).toEqual(["3_c.js", "2_b.js", "1_a.js"]);
+      expect(status.pending).toEqual(["5_e.js", "4_d.js"]);
+    } finally {
+      scenario.cleanup();
+    }
+  });
+
+  it("keeps newer pending migrations pending when redo --to re-applies its window", async () => {
+    const scenario = makeScenario("bunsql-redo-", "db.sqlite");
+    try {
+      writeTableMigration(scenario.listDir, "3_c.js", "c_table");
+      writeTableMigration(scenario.listDir, "2_b.js", "b_table");
+      writeTableMigration(scenario.listDir, "1_a.js", "a_table");
+      await migrateUp(scenario.options);
+      writeTableMigration(scenario.listDir, "5_e.js", "e_table");
+      writeTableMigration(scenario.listDir, "4_d.js", "d_table");
+
+      const result = await migrateRedo({ ...scenario.options, to: "2_b.js" });
+
+      expect(result.reverted).toEqual(["1_a.js", "2_b.js"]);
+      expect(result.applied).toEqual(["2_b.js", "1_a.js"]);
+      expect(readRecords(scenario.dbPath).map((record) => record.migration)).toEqual([
+        "3_c.js",
+        "2_b.js",
+        "1_a.js",
+      ]);
+      expect(readTables(scenario.dbPath)).not.toContain("d_table");
+      expect(readTables(scenario.dbPath)).not.toContain("e_table");
+      const status = await migrateStatus(scenario.options);
+      expect(status.pending).toEqual(["5_e.js", "4_d.js"]);
+    } finally {
+      scenario.cleanup();
+    }
+  });
+
+  it("rejects to combined with the redo-only window and unknown only files", async () => {
+    const scenario = makeScenario("bunsql-redo-", "db.sqlite");
+    try {
+      writeTableMigration(scenario.listDir, "1_a.js", "a_table");
+
+      await expect(
+        migrateUp({ ...scenario.options, to: "1_a.js", only: ["1_a.js"] }),
+      ).rejects.toThrow(/cannot be combined/);
+      await expect(migrateUp({ ...scenario.options, only: ["missing.js"] })).rejects.toBeInstanceOf(
+        MigrationNotFoundError,
+      );
+    } finally {
+      scenario.cleanup();
+    }
+  });
+
   it("throws MigrationNotFoundError for an unknown target before any writes", async () => {
     const scenario = makeScenario("bunsql-redo-", "db.sqlite");
     try {

@@ -15,13 +15,11 @@ export function isMigrationFileName(name: string): boolean {
   return MIGRATION_SUFFIXES.some((suffix) => name.endsWith(suffix));
 }
 
-export async function listFiles(dir: string, extensions: readonly string[]): Promise<string[]> {
-  const suffixes = extensions.map((extension) => `.${extension}`);
+export async function listFiles(dir: string): Promise<string[]> {
   const matchedFiles: string[] = [];
   const entries = await readdir(dir, { withFileTypes: true });
   for (const entry of entries) {
-    if (entry.isFile() && suffixes.some((suffix) => entry.name.endsWith(suffix))) {
-      if (!isMigrationFileName(entry.name)) continue;
+    if (entry.isFile() && isMigrationFileName(entry.name)) {
       matchedFiles.push(entry.name);
     }
   }
@@ -29,7 +27,15 @@ export async function listFiles(dir: string, extensions: readonly string[]): Pro
 }
 
 export async function listMigrationFiles(listDir: string): Promise<string[]> {
-  return listFiles(listDir, MIGRATION_EXTENSIONS);
+  return listFiles(listDir);
+}
+
+export function requireChecksum(checksums: ReadonlyMap<string, string>, file: string): string {
+  const checksum = checksums.get(file);
+  if (checksum === undefined) {
+    throw new Error(`checksum for ${file} was not computed`);
+  }
+  return checksum;
 }
 
 export async function checksumFile(filePath: string): Promise<string> {

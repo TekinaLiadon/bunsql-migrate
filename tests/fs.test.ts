@@ -14,12 +14,12 @@ afterAll(() => {
 });
 
 describe("listFiles()", () => {
-  it("finds .js files in a directory", async () => {
+  it("finds migration files in a directory", async () => {
     writeFileSync(path.join(testDir, "a.js"), "");
     writeFileSync(path.join(testDir, "b.js"), "");
     writeFileSync(path.join(testDir, "c.txt"), "");
 
-    const files = await listFiles(testDir, ["js"]);
+    const files = await listFiles(testDir);
     expect(files).toHaveLength(2);
     expect(files).toContain("a.js");
     expect(files).toContain("b.js");
@@ -34,7 +34,7 @@ describe("listFiles()", () => {
     writeFileSync(path.join(mixedDir, "3_third.js"), "");
     writeFileSync(path.join(mixedDir, "notes.txt"), "");
 
-    const files = await listFiles(mixedDir, ["js", "ts"]);
+    const files = await listFiles(mixedDir);
     expect(files).toEqual(["3_third.js", "2_second.ts", "1_first.js"]);
   });
 
@@ -47,7 +47,7 @@ describe("listFiles()", () => {
     writeFileSync(path.join(declDir, "types.d.ts"), "");
     writeFileSync(path.join(declDir, "env.d.ts"), "");
 
-    const files = await listFiles(declDir, ["js", "ts", "up.sql"]);
+    const files = await listFiles(declDir);
     expect(files).toEqual(["3_real.js", "2_real.up.sql", "1_real.ts"]);
     expect(files).not.toContain("types.d.ts");
     expect(files).not.toContain("env.d.ts");
@@ -57,7 +57,7 @@ describe("listFiles()", () => {
     const emptyDir = path.join(testDir, "empty");
     mkdirSync(emptyDir, { recursive: true });
 
-    const files = await listFiles(emptyDir, ["js"]);
+    const files = await listFiles(emptyDir);
     expect(files).toHaveLength(0);
   });
 });

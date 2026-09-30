@@ -56,3 +56,28 @@ export function resolvePendingToTarget({
   }
   return { pending, targetApplied };
 }
+
+interface ResolveToFilesOptions {
+  allFiles: string[];
+  executedNames: string[];
+  files: readonly string[];
+}
+
+export function resolvePendingToFiles({
+  allFiles,
+  executedNames,
+  files,
+}: ResolveToFilesOptions): string[] {
+  const executed = new Set(executedNames);
+  const known = new Set(allFiles);
+  const pending: string[] = [];
+  for (const file of files) {
+    if (!known.has(file)) {
+      throw new MigrationNotFoundError(file);
+    }
+    if (!executed.has(file) && !pending.includes(file)) {
+      pending.push(file);
+    }
+  }
+  return pending;
+}

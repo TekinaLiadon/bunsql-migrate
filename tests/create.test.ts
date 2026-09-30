@@ -1,5 +1,6 @@
 import { describe, it, expect, spyOn } from "bun:test";
 import { mkdirSync, mkdtempSync, readdirSync, rmSync, existsSync } from "node:fs";
+import { open } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createMigration, createMigrationCommand } from "../src/api/create.js";
@@ -102,6 +103,24 @@ describe("createMigration()", () => {
       expect(content).toContain("async (tx: SQL)");
       expect(content).not.toContain("sql``");
     } finally {
+      cleanup(root);
+    }
+  });
+
+  it("removes the created file when writing the template fails", async () => {
+    const { root, list } = makeListDir("bunsql-create-writefail-");
+    const probe = await open(path.join(root, "probe.txt"), "w");
+    const writeSpy = spyOn(probe.constructor.prototype, "writeFile").mockRejectedValue(
+      new Error("write boom"),
+    );
+    try {
+      await expect(createMigration({ name: "write_fail", listDir: list })).rejects.toThrow(
+        "write boom",
+      );
+      expect(readdirSync(list)).toEqual([]);
+    } finally {
+      writeSpy.mockRestore();
+      await probe.close();
       cleanup(root);
     }
   });

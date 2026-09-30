@@ -52,7 +52,8 @@ export async function migrateRedo(options: RedoOptions = {}): Promise<RedoResult
   try {
     ({ reverted } =
       target !== undefined ? await migrateDown(options) : await migrateDown({ ...options, steps }));
-    const up = await migrateUp({ ...options, to: lastApplied });
+    const { to: _redoTarget, steps: _redoSteps, ...upOptions } = options;
+    const up = await migrateUp({ ...upOptions, only: [...reverted].reverse() });
     return { reverted, applied: up.applied };
   } catch (error) {
     if (reverted.length > 0) {

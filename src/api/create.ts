@@ -1,5 +1,5 @@
 import path from "node:path";
-import { mkdir, open, type FileHandle } from "node:fs/promises";
+import { mkdir, open, unlink, type FileHandle } from "node:fs/promises";
 import { randomName } from "../core/random-name.js";
 import { resolveListDir } from "../core/fs.js";
 import { log } from "../core/console.js";
@@ -76,9 +76,12 @@ async function writeStubExclusively(filePath: string, template: string): Promise
   }
   try {
     await handle.writeFile(template);
-  } finally {
-    await handle.close();
+  } catch (error) {
+    await handle.close().catch(() => undefined);
+    await unlink(filePath).catch(() => undefined);
+    throw error;
   }
+  await handle.close();
   return true;
 }
 

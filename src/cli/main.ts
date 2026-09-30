@@ -107,10 +107,10 @@ function rejectDisallowedFlags(command: string, args: CliArgs): void {
   }
 }
 
-const SECONDS_PATTERN = /^\d+$/;
+const DIGITS_PATTERN = /^\d+$/;
 
 function parseSecondsValue(flag: string, value: string | undefined): number {
-  if (value !== undefined && SECONDS_PATTERN.test(value)) {
+  if (value !== undefined && DIGITS_PATTERN.test(value)) {
     return Number(value);
   }
   log({
@@ -120,15 +120,22 @@ function parseSecondsValue(flag: string, value: string | undefined): number {
   usage(EXIT_USAGE);
 }
 
+function invalidStepCount(stepsArg: string): never {
+  log({
+    text: `Invalid step count: ${stepsArg} (expected a positive integer)`,
+    type: "error",
+  });
+  usage(EXIT_USAGE);
+}
+
 function parseStepsArg(stepsArg: string): number {
+  if (!DIGITS_PATTERN.test(stepsArg)) {
+    invalidStepCount(stepsArg);
+  }
   try {
     return parseSteps(Number(stepsArg));
   } catch {
-    log({
-      text: `Invalid step count: ${stepsArg} (expected a positive integer)`,
-      type: "error",
-    });
-    usage(EXIT_USAGE);
+    invalidStepCount(stepsArg);
   }
 }
 

@@ -109,7 +109,7 @@ migrations/
 - The `.down.sql` pair is the rollback. A migration without one reverts like a `.js` file without a `down()` export: the tracking record is removed with a warning and nothing is executed.
 - Pairs sort together with `.js`/`.ts` files strictly by filename, so all three kinds interleave in one history.
 - Both files may contain several statements separated by semicolons — the whole file is sent as one batch.
-- A `.sql` migration runs inside a transaction on the runner's connection: on PostgreSQL and SQLite a failing statement rolls back the whole file and nothing is recorded; on MySQL/MariaDB DDL implicitly commits, so there only DML gets rollback protection (the same caveat as transactional JS migrations). A file whose leading comment block carries the `-- bunsql-migrate:no-transaction` directive runs outside the transaction instead — see [Non-transactional migrations](#non-transactional-migrations-notransaction).
+- A `.sql` migration runs inside a transaction on the runner's connection: on PostgreSQL and SQLite a failing statement rolls back the whole file and nothing is recorded; on MySQL/MariaDB DDL implicitly commits, so there only DML gets rollback protection (the same caveat as transactional JS migrations). A file whose leading comment block carries the `-- bunsql-migrate:no-transaction` directive (trailing annotation text after whitespace is allowed) runs outside the transaction instead — see [Non-transactional migrations](#non-transactional-migrations-notransaction).
 - The checksum covers the `.up.sql` file; editing a `.down.sql` after the fact is not tracked, exactly like JS `down()` bodies.
 
 ### Transactional migrations
@@ -162,7 +162,7 @@ export { up, down, noTransaction };
 CREATE INDEX CONCURRENTLY users_email_idx ON users (email);
 ```
 
-The directive is honored only before the first statement; each file of the pair is marked separately, so a concurrently-built index needs the directive on its `.down.sql` too (`DROP INDEX CONCURRENTLY` cannot run in a transaction either).
+The directive is honored only before the first statement. The line is matched by the directive itself: anything after whitespace is annotation and never changes the mode (`-- bunsql-migrate:no-transaction (see #42)` works, `-- bunsql-migrate:no-transaction-mode` does not match). Each file of the pair is marked separately, so a concurrently-built index needs the directive on its `.down.sql` too (`DROP INDEX CONCURRENTLY` cannot run in a transaction either).
 
 ### Migrations directory path resolution
 
@@ -434,7 +434,7 @@ bunx bunsql-native-migrate redo 3         # re-run the last three
 bunx bunsql-native-migrate redo --to 2_add_users.ts   # re-run everything down to 2_add_users.ts inclusive
 ```
 
-- It composes the existing commands: a `down` of the window (the last `n`, or everything from the latest back to the `--to` target inclusive), then an `up` that re-applies exactly that window — bounded by the migration that was most recently applied before the redo, so migrations that were already pending and sort older stay pending.
+- It composes the existing commands: a `down` of the window (the last `n`, or everything from the latest back to the `--to` target inclusive), then an `up` that re-applies exactly that window and nothing else — migrations that were already pending before the redo (older **and** newer than the window) stay pending.
 - Editing an applied file normally triggers `ChecksumDriftError` on the next `up`. After a `redo` the old tracking record is gone (the down phase removed it), so the edited file re-applies cleanly with its **new** checksum — that is the point of the command. Note that the down phase runs the _current_ `down()` body against the _old_ up's effects: keep edits additive, or expect the down phase to fail if the shapes diverge.
 - An unknown `--to` name throws `MigrationNotFoundError` before any writes; a name that exists but is not applied is a reported no-op (exit 0). On a fresh database `redo` prints `No migrations to redo.` and exits 0 without creating the tracking table (the history pre-read is read-only).
 - If a phase fails partway — the `up` phase, or a rollback failing mid-loop in the `down` phase — everything reverted so far stays reverted: the rollbacks are printed, a warning points at them, the error propagates and the CLI exits 1. Run `up` to re-apply.

@@ -4,6 +4,7 @@ import path from "node:path";
 import { type SQL } from "bun";
 import type { MigrationDriver } from "../src/core/driver.js";
 import { runMigrationStep } from "../src/api/run-step.js";
+import { loadMigration } from "../src/api/load-migration.js";
 import { migrateDown, migrateUp } from "../src/index.js";
 import { makeScenario, readRecorded, readTables } from "./helpers.js";
 
@@ -176,6 +177,40 @@ export { up, down };
 
       expect(result.applied).toEqual(["1_mid.up.sql"]);
       expect(readTables(scenario.dbPath)).toContain("mid_table");
+    } finally {
+      scenario.cleanup();
+    }
+  });
+});
+
+describe(".sql no-transaction directive parsing", () => {
+  it("recognizes the directive with trailing annotation text in the leading comment block", async () => {
+    const scenario = makeScenario("bunsql-notx-annotated-");
+    try {
+      writeFileSync(
+        path.join(scenario.listDir, "1_annotated.up.sql"),
+        "-- bunsql-migrate:no-transaction (see issue #42)\nCREATE TABLE annotated_table (id INTEGER);\n",
+      );
+
+      const { up } = await loadMigration(scenario.listDir, "1_annotated.up.sql");
+
+      expect(up?.noTransaction).toBe(true);
+    } finally {
+      scenario.cleanup();
+    }
+  });
+
+  it("does not recognize a look-alike line where the directive is not a separate token", async () => {
+    const scenario = makeScenario("bunsql-notx-lookalike-");
+    try {
+      writeFileSync(
+        path.join(scenario.listDir, "1_lookalike.up.sql"),
+        "-- bunsql-migrate:no-transaction-mode\nCREATE TABLE lookalike_table (id INTEGER);\n",
+      );
+
+      const { up } = await loadMigration(scenario.listDir, "1_lookalike.up.sql");
+
+      expect(up?.noTransaction).toBe(false);
     } finally {
       scenario.cleanup();
     }

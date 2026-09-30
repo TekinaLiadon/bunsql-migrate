@@ -15,7 +15,7 @@ export interface MigrationFunctions {
 }
 
 const SQL_UP_SUFFIX = ".up.sql";
-const NO_TRANSACTION_DIRECTIVE = "-- bunsql-migrate:no-transaction";
+const NO_TRANSACTION_DIRECTIVE_PATTERN = /^-- bunsql-migrate:no-transaction(?:\s|$)/;
 
 export function isSqlMigration(file: string): boolean {
   return file.endsWith(SQL_UP_SUFFIX);
@@ -39,7 +39,7 @@ function hasNoTransactionDirective(content: string): boolean {
     const trimmed = line.trim();
     if (trimmed === "") continue;
     if (!trimmed.startsWith("--")) return false;
-    if (trimmed === NO_TRANSACTION_DIRECTIVE) return true;
+    if (NO_TRANSACTION_DIRECTIVE_PATTERN.test(trimmed)) return true;
   }
   return false;
 }

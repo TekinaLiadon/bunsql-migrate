@@ -12,6 +12,7 @@ export interface MigrateUpOptions extends MigrateOptions {
   to?: string;
   lockTimeout?: number;
   dryRun?: boolean;
+  only?: readonly string[];
 }
 
 export interface MigrateDownOptions extends MigrateOptions {
@@ -105,7 +106,7 @@ export class DatabaseWaitTimeoutError extends Error {
 
   constructor(timeoutSeconds: number, cause?: unknown) {
     const reason = cause instanceof Error ? `: ${cause.message}` : "";
-    super(`database was not ready within ${timeoutSeconds}s${reason}`);
+    super(`database was not ready within ${timeoutSeconds}s${reason}`, { cause });
     this.name = "DatabaseWaitTimeoutError";
     this.timeoutSeconds = timeoutSeconds;
   }

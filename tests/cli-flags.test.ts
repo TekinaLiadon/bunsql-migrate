@@ -202,6 +202,38 @@ describe("CLI per-command flag validation", () => {
     }
   });
 
+  it("accepts only plain decimal digits for the down/redo step count", async () => {
+    const scenario = makeScenario("bunsql-flags-steps-", "db.sqlite");
+    try {
+      writeTableMigration(scenario.listDir, "1_a.js", "a_table");
+      writeTableMigration(scenario.listDir, "2_b.js", "b_table");
+      await migrateUp(scenario.options);
+      const before = readRecords(scenario.dbPath);
+
+      for (const value of [" 3", "0x2", "1e2", "+3", "1.5", "-1"]) {
+        const down = await runCli(["down", value], envFor(scenario));
+        expect(down.exitCode).toBe(5);
+        expect(down.output).toContain("Invalid step count");
+
+        const redo = await runCli(["redo", value], envFor(scenario));
+        expect(redo.exitCode).toBe(5);
+        expect(redo.output).toContain("Invalid step count");
+      }
+
+      expect(readRecords(scenario.dbPath)).toEqual(before);
+
+      const downOne = await runCli(["down", "1"], envFor(scenario));
+      expect(downOne.exitCode).toBe(0);
+      expect(downOne.output).toContain("Reverted 1 migration(s)");
+
+      const downAll = await runCli(["down", "--all"], envFor(scenario));
+      expect(downAll.exitCode).toBe(0);
+      expect(downAll.output).toContain("Reverted 1 migration(s)");
+    } finally {
+      scenario.cleanup();
+    }
+  });
+
   it("no longer accepts --dir for install", async () => {
     const scenario = makeScenario("bunsql-flags-install-dir-", "db.sqlite");
     try {

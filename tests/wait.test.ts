@@ -68,7 +68,26 @@ describe("waitForDatabase()", () => {
     expect(error).toBeInstanceOf(DatabaseWaitTimeoutError);
     expect((error as DatabaseWaitTimeoutError).timeoutSeconds).toBe(1);
     expect((error as DatabaseWaitTimeoutError).message).toMatch(/was not ready within 1s: boom-/);
+    expect((error as DatabaseWaitTimeoutError).cause).toBeInstanceOf(Error);
+    expect(((error as DatabaseWaitTimeoutError).cause as Error).message).toMatch(/boom-/);
     expect(stub.attempts()).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe("DatabaseWaitTimeoutError", () => {
+  it("exposes the underlying connection error as cause and keeps the message", () => {
+    const source = new Error("socket hang up");
+    const error = new DatabaseWaitTimeoutError(1, source);
+
+    expect(error.cause).toBe(source);
+    expect(error.message).toBe("database was not ready within 1s: socket hang up");
+  });
+
+  it("leaves the message without a reason and cause unset when no error is given", () => {
+    const error = new DatabaseWaitTimeoutError(2);
+
+    expect(error.cause).toBeUndefined();
+    expect(error.message).toBe("database was not ready within 2s");
   });
 });
 

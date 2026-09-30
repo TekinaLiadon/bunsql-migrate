@@ -56,6 +56,11 @@ async function tryCreateLockFile(lockPath: string): Promise<boolean> {
 
 export function createSqliteFileLock(lockPath: string): SqlLock {
   let held = false;
+  const release = async (): Promise<void> => {
+    if (!held) return;
+    held = false;
+    await unlink(lockPath).catch(() => undefined);
+  };
   return {
     async tryLock() {
       if (held) return true;
@@ -65,16 +70,8 @@ export function createSqliteFileLock(lockPath: string): SqlLock {
       }
       return false;
     },
-    async releaseLock() {
-      if (!held) return;
-      held = false;
-      await unlink(lockPath).catch(() => undefined);
-    },
-    async dispose() {
-      if (!held) return;
-      held = false;
-      await unlink(lockPath).catch(() => undefined);
-    },
+    releaseLock: release,
+    dispose: release,
   };
 }
 
