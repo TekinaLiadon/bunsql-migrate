@@ -175,4 +175,33 @@ describe("MigrationDriver — Postgres (integration)", () => {
       probe.close({ timeout: 0 });
     }
   });
+
+  itWithPostgres("runs the driver cycle at the 46-character table name boundary", async () => {
+    const tableName = "c".repeat(46);
+    const driver = await createDriver(DATABASE_URL as string, { tableName });
+    try {
+      await driver.install();
+      await driver.install();
+
+      expect(await driver.trackingTableCurrent?.()).toBe(true);
+
+      await driver.record("0001-boundary", "checksum-1");
+      await driver.record("0001-boundary", "checksum-duplicate");
+      expect(await driver.listExecuted()).toEqual([
+        { name: "0001-boundary", checksum: "checksum-1" },
+      ]);
+
+      await driver.remove("0001-boundary");
+      expect(await driver.listExecuted()).toEqual([]);
+    } finally {
+      await driver.close();
+    }
+
+    const cleanup = new SQL(DATABASE_URL as string);
+    try {
+      await cleanup.unsafe(`DROP TABLE IF EXISTS "${tableName}" CASCADE`);
+    } finally {
+      cleanup.close({ timeout: 0 });
+    }
+  });
 });

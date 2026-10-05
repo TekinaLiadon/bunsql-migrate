@@ -12,7 +12,7 @@ No ORM, no schema diffing, no lock-in — you write plain `.js`/`.ts` migration 
 - **Bun-native** — built on the unified [`Bun.SQL`](https://bun.com/docs/runtime/sql) client (PostgreSQL, MySQL/MariaDB, SQLite). No Node.js support.
 - **Zero ORM** — migrations are plain JavaScript, TypeScript or SQL files; use `sql` tagged templates or any Bun database client you like.
 - **Zero dependencies**.
-- **Checksums** — every applied migration is checksummed (SHA-256). A modified applied file fails the run instead of silently drifting.
+- **Checksums** — every applied migration is checksummed (SHA-256, with line endings and BOM normalized, so a Windows checkout and a Linux checkout of the same file hash identically). A modified applied file fails the run instead of silently drifting.
 - **Concurrent-safe `up`** — an advisory database lock serializes racing `up` runs (two deploy pods, CI + laptop) so a migration body never executes twice.
 - **Dev loop `redo`** — `down` + `up` of the last migrations in one command: re-run a migration you are still editing without checksum-drift noise.
 - **Wait for the database** — `--wait <seconds>` polls the connection before running, so a CI step next to a starting container needs no `sleep`/wait-for-it hacks.
@@ -385,11 +385,13 @@ Applied migrations are recorded in a `migrations` table with a unique name and a
 
 Records created before checksums existed (checksum `NULL`) are backfilled on the next `up`.
 
+Before hashing, the file content is normalized: line endings become LF and a leading UTF-8 BOM is stripped, so the same migration checked out with CRLF (git `autocrlf` on Windows) or saved with a BOM hashes exactly like its LF twin — a cross-OS checkout never produces a false drift. Records written before this normalization existed (raw-byte checksums) are still recognized: `up` matches them against the unnormalized byte variants of the current file and re-saves the normalized checksum, the same way `NULL` checksums are backfilled.
+
 ### Custom tracking table
 
 Several projects can point at one database without sharing a history: give each its own tracking table with `tableName` (CLI `--table`), optionally in a PostgreSQL schema with `schema` (CLI `--schema`, the schema must already exist — it is not created for you). The unique index is derived from the table name (`<table>_migration_unique`), so custom tables never collide, and the legacy checksum backfill works in custom tables too. Two concurrent `up` runs still serialize on the same per-database lock even with different tables — they share the database, after all.
 
-Names are validated before the driver connects: an identifier of letters, digits, underscores and dollar signs, starting with a letter or underscore (PostgreSQL ≤ 63 chars, MySQL/MariaDB ≤ 47, SQLite ≤ 128; schema ≤ 63). Anything else — spaces, quotes, semicolons — throws `InvalidIdentifierError` and the CLI exits 5, so a hostile name can never reach the database. The `schema` option on a MySQL or SQLite URL is an error as well: MySQL selects the database in the URL itself and SQLite has no schemas.
+Names are validated before the driver connects: an identifier of letters, digits, underscores and dollar signs, starting with a letter or underscore (PostgreSQL ≤ 46 chars — the derived `<table>_migration_unique` index name must fit Postgres's 63-char identifier limit, which would otherwise silently truncate it; MySQL/MariaDB ≤ 47 for the same reason, SQLite ≤ 128; schema ≤ 63). Anything else — spaces, quotes, semicolons — throws `InvalidIdentifierError` and the CLI exits 5, so a hostile name can never reach the database. The `schema` option on a MySQL or SQLite URL is an error as well: MySQL selects the database in the URL itself and SQLite has no schemas.
 
 ### Baseline: adopting an existing database (mark)
 

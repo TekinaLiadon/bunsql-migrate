@@ -6,10 +6,10 @@ export class InvalidIdentifierError extends Error {
   readonly kind: IdentifierKind;
   readonly value: string;
 
-  constructor(kind: IdentifierKind, value: string, maxLength: number) {
+  constructor(kind: IdentifierKind, value: string, maxLength: number, reason?: string) {
+    const explanation = reason === undefined ? "" : ` — ${reason}`;
     super(
-      `Invalid ${kind} name: "${value}" — expected an identifier of letters, digits, underscores and dollar signs ` +
-        `starting with a letter or underscore, at most ${maxLength} characters`,
+      `Invalid ${kind} name: "${value}" — expected an identifier of letters, digits, underscores and dollar signs starting with a letter or underscore, at most ${maxLength} characters${explanation}`,
     );
     this.name = "InvalidIdentifierError";
     this.kind = kind;
@@ -17,9 +17,14 @@ export class InvalidIdentifierError extends Error {
   }
 }
 
-export function validateIdentifier(kind: IdentifierKind, value: string, maxLength: number): void {
+export function validateIdentifier(
+  kind: IdentifierKind,
+  value: string,
+  maxLength: number,
+  reason?: string,
+): void {
   if (!IDENTIFIER_PATTERN.test(value) || value.length > maxLength) {
-    throw new InvalidIdentifierError(kind, value, maxLength);
+    throw new InvalidIdentifierError(kind, value, maxLength, reason);
   }
 }
 

@@ -1,4 +1,11 @@
-import { checksumFiles, listMigrationFiles, requireChecksum, resolveListDir } from "../core/fs.js";
+import path from "node:path";
+import {
+  checksumFiles,
+  listMigrationFiles,
+  matchesRawChecksum,
+  requireChecksum,
+  resolveListDir,
+} from "../core/fs.js";
 import { log } from "../core/console.js";
 import { formatDuration } from "../core/duration.js";
 import { type MigrateUpOptions, type MigrateUpResult, ChecksumDriftError } from "./options.js";
@@ -42,7 +49,17 @@ export async function migrateUp(options: MigrateUpOptions = {}): Promise<Migrate
         }
 
         if (record.checksum !== checksum) {
-          throw new ChecksumDriftError(file);
+          const rawChecksumMatches = await matchesRawChecksum(
+            path.join(listDir, file),
+            record.checksum,
+          );
+          if (!rawChecksumMatches) {
+            throw new ChecksumDriftError(file);
+          }
+          if (!dryRun) {
+            await driver.setChecksum(file, checksum);
+            log({ text: `${file} checksum saved (normalized)`, type: "info" });
+          }
         }
       }
 

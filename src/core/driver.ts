@@ -25,6 +25,25 @@ export interface DriverTableOptions {
   schema?: string;
 }
 
+const URL_PASSWORD_PATTERN = /^([a-zA-Z][a-zA-Z0-9+.-]*:\/\/[^:@/?#]*:)[^/?#]*@/;
+const URL_USERINFO_PATTERN = /^([a-zA-Z][a-zA-Z0-9+.-]*:\/\/)[\s\S]*@/;
+
+export function redactDatabaseUrl(databaseUrl: string): string {
+  try {
+    const url = new URL(databaseUrl);
+    if (url.password !== "") {
+      url.password = "***";
+    }
+    return url.href;
+  } catch {
+    const maskedPassword = databaseUrl.replace(URL_PASSWORD_PATTERN, "$1***@");
+    if (maskedPassword !== databaseUrl) {
+      return maskedPassword;
+    }
+    return databaseUrl.replace(URL_USERINFO_PATTERN, "$1***@");
+  }
+}
+
 export async function createDriver(
   databaseUrl: string,
   options: DriverTableOptions = {},
@@ -36,7 +55,7 @@ export async function createDriver(
     if (databaseUrl.startsWith("sqlite:")) {
       protocol = "sqlite";
     } else {
-      throw new Error(`Cannot parse database URL: ${databaseUrl}`);
+      throw new Error(`Cannot parse database URL: ${redactDatabaseUrl(databaseUrl)}`);
     }
   }
   if (options.schema !== undefined && protocol !== "postgres" && protocol !== "postgresql") {

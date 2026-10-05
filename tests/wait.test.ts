@@ -121,6 +121,17 @@ describe("connectDriver()", () => {
     expect(error).not.toBeInstanceOf(DatabaseWaitTimeoutError);
     expect((error as Error).message).toContain("Unsupported database URL protocol");
   });
+
+  it("fails fast on an unparseable URL without leaking the password", async () => {
+    const error = await connectDriver("postgres://user:secret@localhost:54x32/db", {}, 30).then(
+      () => null,
+      (caught: unknown) => caught,
+    );
+
+    expect(error).not.toBeInstanceOf(DatabaseWaitTimeoutError);
+    expect((error as Error).message).toContain("postgres://user:***@localhost:54x32/db");
+    expect((error as Error).message).not.toContain("secret");
+  });
 });
 
 describe("CLI --wait", () => {

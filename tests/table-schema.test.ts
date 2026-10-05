@@ -169,6 +169,26 @@ describe("identifier validation", () => {
     }
   });
 
+  it("rejects a postgres table name whose index name would be truncated", async () => {
+    const error = await createDriver("postgres://user:pass@localhost:5432/db", {
+      tableName: "a".repeat(47),
+    }).then(
+      () => null,
+      (caught: unknown) => caught,
+    );
+
+    expect(error).toBeInstanceOf(InvalidIdentifierError);
+    expect((error as InvalidIdentifierError).message).toContain("at most 46 characters");
+    expect((error as InvalidIdentifierError).message).toContain("_migration_unique");
+  });
+
+  it("accepts a postgres table name whose index name fits the identifier limit exactly", async () => {
+    const driver = await createDriver("postgres://user:pass@localhost:5432/db", {
+      tableName: "a".repeat(46),
+    });
+    await driver.close();
+  });
+
   it("rejects an invalid schema name before touching the database", async () => {
     const scenario = makeScenario("bunsql-table-");
     try {

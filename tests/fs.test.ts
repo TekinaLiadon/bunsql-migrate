@@ -1,7 +1,15 @@
 import { describe, it, expect, beforeAll, afterAll } from "bun:test";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { listFiles, resolveListDir, DEFAULT_MIGRATIONS_DIR } from "../src/core/fs.js";
+import { listFiles, resolveListDir, checksumFile, DEFAULT_MIGRATIONS_DIR } from "../src/core/fs.js";
+import {
+  createDriver,
+  installMigrations,
+  migrateStatus,
+  migrateUp,
+  ChecksumDriftError,
+} from "../src/index.js";
+import { makeScenario, readChecksums, readTables } from "./helpers.js";
 
 const testDir = path.resolve(import.meta.dir, "__test_files__");
 
@@ -115,6 +123,175 @@ describe("resolveListDir()", () => {
       if (previous !== undefined) {
         process.env["MIGRATION_LIST_DIR"] = previous;
       }
+    }
+  });
+});
+
+describe("checksumFile()", () => {
+  it("hashes LF, CRLF, lone-CR and BOM variants of one content identically", async () => {
+    const variantDir = path.join(testDir, "checksum-variants");
+    mkdirSync(variantDir, { recursive: true });
+    const content = "const up = async (tx) => {\n  await tx`SELECT 1`;\n};\n";
+    writeFileSync(path.join(variantDir, "9_lf.js"), content);
+    writeFileSync(path.join(variantDir, "8_crlf.js"), content.replaceAll("\n", "\r\n"));
+    writeFileSync(path.join(variantDir, "7_cr.js"), content.replaceAll("\n", "\r"));
+    writeFileSync(path.join(variantDir, "6_bom.js"), `\uFEFF${content}`);
+    writeFileSync(
+      path.join(variantDir, "5_bom_crlf.js"),
+      `\uFEFF${content.replaceAll("\n", "\r\n")}`,
+    );
+
+    const hasher = new Bun.CryptoHasher("sha256");
+    hasher.update(content);
+    const expected = hasher.digest("hex");
+
+    expect(await checksumFile(path.join(variantDir, "9_lf.js"))).toBe(expected);
+    expect(await checksumFile(path.join(variantDir, "8_crlf.js"))).toBe(expected);
+    expect(await checksumFile(path.join(variantDir, "7_cr.js"))).toBe(expected);
+    expect(await checksumFile(path.join(variantDir, "6_bom.js"))).toBe(expected);
+    expect(await checksumFile(path.join(variantDir, "5_bom_crlf.js"))).toBe(expected);
+  });
+
+  it("still hashes different content differently", async () => {
+    const diffDir = path.join(testDir, "checksum-diff");
+    mkdirSync(diffDir, { recursive: true });
+    writeFileSync(path.join(diffDir, "9_left.js"), "const up = async (tx) => {};\n");
+    writeFileSync(path.join(diffDir, "8_right.js"), "const up = async (tx) => { /* edited */ };\n");
+
+    const left = await checksumFile(path.join(diffDir, "9_left.js"));
+    const right = await checksumFile(path.join(diffDir, "8_right.js"));
+    expect(left).not.toBe(right);
+  });
+});
+
+describe("checksum normalization across line endings", () => {
+  const FILE = "9_normalized.js";
+  const BODY_TABLE = "normalized_table";
+
+  function writeNormalizedMigration(listDir: string, lineEnding: string, withBom: boolean): string {
+    const content = `const up = async (tx) => {
+  await tx\`CREATE TABLE ${BODY_TABLE} (id INTEGER)\`;
+};
+const down = async (tx) => {};
+export { up, down };
+`;
+    const filePath = path.join(listDir, FILE);
+    writeFileSync(filePath, `${withBom ? "\uFEFF" : ""}${content.replaceAll("\n", lineEnding)}`);
+    return filePath;
+  }
+
+  async function recordRawChecksum(
+    options: { databaseUrl: string },
+    filePath: string,
+  ): Promise<void> {
+    const hasher = new Bun.CryptoHasher("sha256");
+    hasher.update(readFileSync(filePath));
+    await installMigrations(options);
+    const driver = await createDriver(options.databaseUrl);
+    try {
+      await driver.record(FILE, hasher.digest("hex"));
+    } finally {
+      await driver.close();
+    }
+  }
+
+  it("re-checks a CRLF-recorded migration as LF without checksum drift", async () => {
+    const scenario = makeScenario("bunsql-checksum-", "checksum.db");
+    try {
+      const filePath = writeNormalizedMigration(scenario.listDir, "\r\n", false);
+      await migrateUp(scenario.options);
+
+      const status = await migrateStatus(scenario.options);
+      expect(status.applied[0]?.checksum).toBe(await checksumFile(filePath));
+
+      writeNormalizedMigration(scenario.listDir, "\n", false);
+      const result = await migrateUp(scenario.options);
+      expect(result.applied).toEqual([]);
+    } finally {
+      scenario.cleanup();
+    }
+  });
+
+  it("re-checks a BOM-recorded migration without BOM without checksum drift", async () => {
+    const scenario = makeScenario("bunsql-checksum-", "checksum.db");
+    try {
+      writeNormalizedMigration(scenario.listDir, "\n", true);
+      await migrateUp(scenario.options);
+
+      writeNormalizedMigration(scenario.listDir, "\n", false);
+      const result = await migrateUp(scenario.options);
+      expect(result.applied).toEqual([]);
+    } finally {
+      scenario.cleanup();
+    }
+  });
+
+  it("accepts a pre-normalization raw checksum and re-saves it normalized", async () => {
+    const scenario = makeScenario("bunsql-checksum-", "checksum.db");
+    try {
+      const filePath = writeNormalizedMigration(scenario.listDir, "\r\n", false);
+      await recordRawChecksum(scenario.options, filePath);
+
+      const result = await migrateUp(scenario.options);
+      expect(result.applied).toEqual([]);
+      expect(readChecksums(scenario.dbPath)[FILE]).toBe(await checksumFile(filePath));
+      expect(readTables(scenario.dbPath)).not.toContain(BODY_TABLE);
+    } finally {
+      scenario.cleanup();
+    }
+  });
+
+  it("accepts a pre-normalization CRLF checksum when the file is now LF", async () => {
+    const scenario = makeScenario("bunsql-checksum-", "checksum.db");
+    try {
+      writeNormalizedMigration(scenario.listDir, "\r\n", false);
+      await recordRawChecksum(scenario.options, path.join(scenario.listDir, FILE));
+      const filePath = writeNormalizedMigration(scenario.listDir, "\n", false);
+
+      const result = await migrateUp(scenario.options);
+      expect(result.applied).toEqual([]);
+      expect(readChecksums(scenario.dbPath)[FILE]).toBe(await checksumFile(filePath));
+      expect(readTables(scenario.dbPath)).not.toContain(BODY_TABLE);
+    } finally {
+      scenario.cleanup();
+    }
+  });
+
+  it("dry-run accepts a pre-normalization checksum without re-saving it", async () => {
+    const scenario = makeScenario("bunsql-checksum-", "checksum.db");
+    try {
+      const filePath = writeNormalizedMigration(scenario.listDir, "\r\n", false);
+      const hasher = new Bun.CryptoHasher("sha256");
+      hasher.update(readFileSync(filePath));
+      const rawChecksum = hasher.digest("hex");
+      await recordRawChecksum(scenario.options, filePath);
+
+      const result = await migrateUp({ ...scenario.options, dryRun: true });
+      expect(result.planned).toEqual([]);
+      expect(readChecksums(scenario.dbPath)[FILE]).toBe(rawChecksum);
+
+      await migrateUp(scenario.options);
+      expect(readChecksums(scenario.dbPath)[FILE]).toBe(await checksumFile(filePath));
+    } finally {
+      scenario.cleanup();
+    }
+  });
+
+  it("still reports drift when the recorded checksum matches no variant", async () => {
+    const scenario = makeScenario("bunsql-checksum-", "checksum.db");
+    try {
+      writeNormalizedMigration(scenario.listDir, "\n", false);
+      await installMigrations(scenario.options);
+      const driver = await createDriver(scenario.options.databaseUrl);
+      try {
+        await driver.record(FILE, "a".repeat(64));
+      } finally {
+        await driver.close();
+      }
+
+      await expect(migrateUp(scenario.options)).rejects.toThrow(ChecksumDriftError);
+    } finally {
+      scenario.cleanup();
     }
   });
 });

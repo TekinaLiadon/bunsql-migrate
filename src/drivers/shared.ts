@@ -13,11 +13,12 @@ export interface TableRef {
 interface TableRefSpec {
   quote: (identifier: string) => string;
   maxLength: number;
+  reason?: string;
 }
 
 export function resolveTableRef(options: DriverTableOptions, spec: TableRefSpec): TableRef {
   const tableName = options.tableName ?? "migrations";
-  validateIdentifier("table", tableName, spec.maxLength);
+  validateIdentifier("table", tableName, spec.maxLength, spec.reason);
   return {
     table: spec.quote(tableName),
     index: spec.quote(`${tableName}${UNIQUE_INDEX_SUFFIX}`),

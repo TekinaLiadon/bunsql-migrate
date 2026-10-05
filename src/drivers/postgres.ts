@@ -13,6 +13,8 @@ const LOCK_SCOPE = "bunsql-native-migrate:up";
 
 const IDENTIFIER_MAX_LENGTH = 63;
 
+const TABLE_NAME_MAX_LENGTH = IDENTIFIER_MAX_LENGTH - UNIQUE_INDEX_SUFFIX.length;
+
 interface PostgresTableRef extends TableRef {
   schemaName?: string;
 }
@@ -20,7 +22,8 @@ interface PostgresTableRef extends TableRef {
 function resolvePostgresTableRef(options: DriverTableOptions): PostgresTableRef {
   const base = resolveTableRef(options, {
     quote: doubleQuoted,
-    maxLength: IDENTIFIER_MAX_LENGTH,
+    maxLength: TABLE_NAME_MAX_LENGTH,
+    reason: `the tracking index name appends "${UNIQUE_INDEX_SUFFIX}" and must fit the ${IDENTIFIER_MAX_LENGTH}-character postgres identifier limit`,
   });
   if (options.schema === undefined) {
     return base;

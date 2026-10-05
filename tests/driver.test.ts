@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { createDriver } from "../src/core/driver.js";
+import { createDriver, redactDatabaseUrl } from "../src/core/driver.js";
 import { withSqlite } from "./helpers.js";
 
 const SQLITE_URL = "sqlite://:memory:";
@@ -29,6 +29,59 @@ describe("createDriver() — SQLite", () => {
 
   it("rejects an unparseable URL", async () => {
     expect(createDriver("not a url")).rejects.toThrow("Cannot parse database URL");
+  });
+
+  it("rejects an unparseable URL without leaking the password", async () => {
+    const error = await createDriver("postgres://user:secret@localhost:54x32/db").then(
+      () => null,
+      (caught: unknown) => caught,
+    );
+
+    expect((error as Error).message).toBe(
+      "Cannot parse database URL: postgres://user:***@localhost:54x32/db",
+    );
+    expect((error as Error).message).not.toContain("secret");
+  });
+});
+
+describe("redactDatabaseUrl()", () => {
+  it("masks the password of a parseable URL and keeps the username", () => {
+    expect(redactDatabaseUrl("postgres://user:secret@localhost:5432/db")).toBe(
+      "postgres://user:***@localhost:5432/db",
+    );
+  });
+
+  it("masks a password containing a space", () => {
+    expect(redactDatabaseUrl("postgres://user:secret pass@host/db")).toBe(
+      "postgres://user:***@host/db",
+    );
+  });
+
+  it("leaves a URL without credentials untouched", () => {
+    expect(redactDatabaseUrl("postgres://localhost:5432/db")).toBe("postgres://localhost:5432/db");
+    expect(redactDatabaseUrl("sqlite::memory:")).toBe("sqlite::memory:");
+  });
+
+  it("masks the password of an unparseable URL and keeps the username", () => {
+    expect(redactDatabaseUrl("postgres://user:secret@localhost:54x32/db")).toBe(
+      "postgres://user:***@localhost:54x32/db",
+    );
+  });
+
+  it("masks a password containing a raw @ in an unparseable URL", () => {
+    expect(redactDatabaseUrl("postgres://user:se@cret@host:99x/db")).toBe(
+      "postgres://user:***@host:99x/db",
+    );
+  });
+
+  it("masks the whole userinfo when an unparseable password contains a slash", () => {
+    expect(redactDatabaseUrl("postgres://user:se/cret@host:54x/db")).toBe(
+      "postgres://***@host:54x/db",
+    );
+  });
+
+  it("leaves a string without a scheme or credentials untouched", () => {
+    expect(redactDatabaseUrl("not a url")).toBe("not a url");
   });
 });
 

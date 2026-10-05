@@ -38,10 +38,32 @@ export function requireChecksum(checksums: ReadonlyMap<string, string>, file: st
   return checksum;
 }
 
-export async function checksumFile(filePath: string): Promise<string> {
+function normalizeFileContent(content: string): string {
+  return content.replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n");
+}
+
+function sha256(data: string | ArrayBuffer): string {
   const hasher = new Bun.CryptoHasher("sha256");
-  hasher.update(await Bun.file(filePath).arrayBuffer());
+  hasher.update(data);
   return hasher.digest("hex");
+}
+
+export async function checksumFile(filePath: string): Promise<string> {
+  return sha256(normalizeFileContent(await Bun.file(filePath).text()));
+}
+
+export async function matchesRawChecksum(filePath: string, checksum: string): Promise<boolean> {
+  const bytes = await Bun.file(filePath).arrayBuffer();
+  const content = normalizeFileContent(new TextDecoder().decode(bytes));
+  const crlfContent = content.replaceAll("\n", "\r\n");
+  const variants = [
+    sha256(bytes),
+    sha256(content),
+    sha256(`\uFEFF${content}`),
+    sha256(crlfContent),
+    sha256(`\uFEFF${crlfContent}`),
+  ];
+  return variants.includes(checksum);
 }
 
 export async function checksumFiles(
