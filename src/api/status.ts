@@ -1,10 +1,14 @@
-import { listMigrationFiles, resolveListDir } from "../core/fs.js";
+import { assertMigrationsDirectory, listMigrationFiles, resolveListDir } from "../core/fs.js";
+import { getDatabaseUrl } from "../core/env.js";
 import type { MigrateOptions, MigrateStatusResult } from "./options.js";
 import { runWithDriver } from "./run-with-driver.js";
 import { ensureTrackingTable } from "./tracking-table.js";
 
 export async function migrateStatus(options: MigrateOptions = {}): Promise<MigrateStatusResult> {
   const listDir = resolveListDir(options.listDir);
+
+  getDatabaseUrl(options.databaseUrl);
+  await assertMigrationsDirectory(listDir);
 
   return runWithDriver(options, async (driver) => {
     await ensureTrackingTable(driver);

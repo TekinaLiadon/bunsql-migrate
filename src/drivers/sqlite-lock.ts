@@ -1,6 +1,7 @@
 import { link, open, readFile, unlink } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
+import { errorCode } from "../core/error.js";
 import type { SqlLock } from "./shared.js";
 
 const LOCK_FILE_SUFFIX = ".bunsql-migrate.lock";
@@ -29,7 +30,7 @@ async function lockIsStale(lockPath: string): Promise<boolean> {
     process.kill(pid, 0);
     return false;
   } catch (error) {
-    return (error as NodeJS.ErrnoException).code === "ESRCH";
+    return errorCode(error) === "ESRCH";
   }
 }
 
@@ -45,7 +46,7 @@ async function tryCreateLockFile(lockPath: string): Promise<boolean> {
     await link(stagingPath, lockPath);
     return true;
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    if (errorCode(error) !== "EEXIST") throw error;
     if (!(await lockIsStale(lockPath))) return false;
     await unlink(lockPath).catch(() => undefined);
     return tryCreateLockFile(lockPath);

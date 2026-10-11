@@ -1,4 +1,11 @@
-import { checksumFiles, listMigrationFiles, requireChecksum, resolveListDir } from "../core/fs.js";
+import {
+  assertMigrationsDirectory,
+  checksumFiles,
+  listMigrationFiles,
+  requireChecksum,
+  resolveListDir,
+} from "../core/fs.js";
+import { getDatabaseUrl } from "../core/env.js";
 import { log } from "../core/console.js";
 import { type MarkOptions, type MarkResult } from "./options.js";
 import { assertTargetOptions, resolvePendingToTarget } from "./pending.js";
@@ -9,6 +16,8 @@ export async function markMigrationsApplied(options: MarkOptions = {}): Promise<
   const listDir = resolveListDir(options.listDir);
   const target = options.to;
 
+  getDatabaseUrl(options.databaseUrl);
+  await assertMigrationsDirectory(listDir);
   await assertTargetOptions("mark", listDir, target, undefined);
 
   return runWithDriver(options, async (driver) => {

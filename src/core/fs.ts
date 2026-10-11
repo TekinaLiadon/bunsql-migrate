@@ -1,5 +1,7 @@
-import { readdir } from "node:fs/promises";
+import { readdir, stat } from "node:fs/promises";
+import type { Dirent } from "node:fs";
 import path from "node:path";
+import { errorCode, BunsqlMigrateError } from "./error.js";
 import { getMigrationListDir } from "./env.js";
 
 export const DEFAULT_MIGRATIONS_DIR = "migrations";
@@ -10,16 +12,64 @@ const MIGRATION_SUFFIXES = MIGRATION_EXTENSIONS.map((extension) => `.${extension
 
 const DECLARATION_SUFFIX = ".d.ts";
 
+export class MigrationsDirectoryNotFoundError extends BunsqlMigrateError {
+  readonly directory: string;
+
+  constructor(directory: string) {
+    super("usage", `migrations directory not found: ${directory} — run init or pass --dir`);
+    this.name = "MigrationsDirectoryNotFoundError";
+    this.directory = directory;
+  }
+}
+
+function toMissingDirectoryError(dir: string, error: unknown): Error {
+  const code = errorCode(error);
+  if (code === "ENOENT" || code === "ENOTDIR") {
+    return new MigrationsDirectoryNotFoundError(dir);
+  }
+  return error instanceof Error ? error : new Error(String(error));
+}
+
+export async function assertMigrationsDirectory(listDir: string): Promise<void> {
+  let isDirectory: boolean;
+  try {
+    isDirectory = (await stat(listDir)).isDirectory();
+  } catch (error) {
+    throw toMissingDirectoryError(listDir, error);
+  }
+  if (!isDirectory) {
+    throw new MigrationsDirectoryNotFoundError(listDir);
+  }
+}
+
 export function isMigrationFileName(name: string): boolean {
   if (name.endsWith(DECLARATION_SUFFIX)) return false;
   return MIGRATION_SUFFIXES.some((suffix) => name.endsWith(suffix));
 }
 
+async function isFileTarget(filePath: string): Promise<boolean> {
+  try {
+    return (await stat(filePath)).isFile();
+  } catch {
+    return false;
+  }
+}
+
 export async function listFiles(dir: string): Promise<string[]> {
   const matchedFiles: string[] = [];
-  const entries = await readdir(dir, { withFileTypes: true });
+  let entries: Dirent[];
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch (error) {
+    throw toMissingDirectoryError(dir, error);
+  }
   for (const entry of entries) {
-    if (entry.isFile() && isMigrationFileName(entry.name)) {
+    if (!isMigrationFileName(entry.name)) continue;
+    if (entry.isFile()) {
+      matchedFiles.push(entry.name);
+      continue;
+    }
+    if (entry.isSymbolicLink() && (await isFileTarget(path.join(dir, entry.name)))) {
       matchedFiles.push(entry.name);
     }
   }

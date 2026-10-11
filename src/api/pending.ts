@@ -1,5 +1,6 @@
 import { listMigrationFiles } from "../core/fs.js";
 import { log } from "../core/console.js";
+import { BunsqlMigrateError } from "../core/error.js";
 import { MigrationNotFoundError } from "./options.js";
 
 export interface PendingToTargetResult {
@@ -26,7 +27,10 @@ export async function assertTargetOptions(
   steps: unknown,
 ): Promise<void> {
   if (target !== undefined && steps !== undefined) {
-    throw new Error(`Invalid ${command} options: "to" and "steps" cannot be combined`);
+    throw new BunsqlMigrateError(
+      "usage",
+      `Invalid ${command} options: "to" and "steps" cannot be combined`,
+    );
   }
   if (target !== undefined) {
     assertTargetInFiles(await listMigrationFiles(listDir), target);

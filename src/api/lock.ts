@@ -28,7 +28,7 @@ export async function withMigrationLock<T>(
       throw new MigrationLockError(timeoutSeconds);
     }
     if (!waitingLogged) {
-      log({ text: "another migrate up holds the lock — waiting", type: "info" });
+      log({ text: "another migrate command holds the lock — waiting", type: "info" });
       waitingLogged = true;
     }
     await Bun.sleep(LOCK_RETRY_DELAY_MS);

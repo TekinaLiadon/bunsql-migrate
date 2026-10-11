@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { type MigrationLang } from "../api/create.js";
+import { BunsqlMigrateError } from "./error.js";
 
 export interface ProjectConfig {
   databaseUrl?: string;
@@ -27,11 +28,11 @@ const CONFIG_KEYS: Record<string, ConfigKeyType> = {
   waitTimeout: "seconds",
 };
 
-export class InvalidConfigError extends Error {
+export class InvalidConfigError extends BunsqlMigrateError {
   readonly configPath: string;
 
   constructor(configPath: string, detail: string) {
-    super(`${configPath}: ${detail}`);
+    super("usage", `${configPath}: ${detail}`);
     this.name = "InvalidConfigError";
     this.configPath = configPath;
   }

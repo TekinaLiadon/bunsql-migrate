@@ -8,16 +8,8 @@ import { installMigrations } from "../api/install.js";
 import { createMigrationCommand, type MigrationLang } from "../api/create.js";
 import { initMigrations } from "../api/init.js";
 import { markMigrationsApplied } from "../api/mark.js";
-import { loadProjectConfig, InvalidConfigError } from "../core/config.js";
-import {
-  ChecksumDriftError,
-  DatabaseWaitTimeoutError,
-  InvalidMigrationNameError,
-  MigrationFileMissingError,
-  MigrationLockError,
-  MigrationNotFoundError,
-} from "../api/options.js";
-import { InvalidIdentifierError } from "../core/identifiers.js";
+import { loadProjectConfig } from "../core/config.js";
+import { BunsqlMigrateError } from "../core/error.js";
 import { log } from "../core/console.js";
 import { EXIT_PENDING, EXIT_SUCCESS, EXIT_USAGE, exitCodeForError } from "./exit-codes.js";
 
@@ -243,6 +235,7 @@ function usage(exitCode: number): never {
   log({
     text: "Usage: bunsql-native-migrate <init|up|down [n]|redo [n]|install|create [name]|mark [name]|status|version> [--url <url>] [--dir <migrations-dir>] [--config <path>] [--to <name>] [--lock-timeout <seconds>] [--wait <seconds>] [--table <name>] [--schema <name>] [--dry-run] [--all] [--lang <js|ts>] [--git] [--strict] [--version] [--help]",
     type: "info",
+    stream: "stderr",
   });
   process.exit(exitCode);
 }
@@ -424,16 +417,7 @@ try {
       usage(EXIT_USAGE);
   }
 } catch (error) {
-  if (
-    error instanceof ChecksumDriftError ||
-    error instanceof MigrationNotFoundError ||
-    error instanceof MigrationFileMissingError ||
-    error instanceof MigrationLockError ||
-    error instanceof DatabaseWaitTimeoutError ||
-    error instanceof InvalidIdentifierError ||
-    error instanceof InvalidConfigError ||
-    error instanceof InvalidMigrationNameError
-  ) {
+  if (error instanceof BunsqlMigrateError) {
     log({ text: error.message, type: "error" });
   } else {
     log({ text: "Migration command failed", type: "error", error });

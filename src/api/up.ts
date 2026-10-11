@@ -1,5 +1,6 @@
 import path from "node:path";
 import {
+  assertMigrationsDirectory,
   checksumFiles,
   listMigrationFiles,
   matchesRawChecksum,
@@ -7,7 +8,9 @@ import {
   resolveListDir,
 } from "../core/fs.js";
 import { log } from "../core/console.js";
+import { getDatabaseUrl } from "../core/env.js";
 import { formatDuration } from "../core/duration.js";
+import { BunsqlMigrateError } from "../core/error.js";
 import { type MigrateUpOptions, type MigrateUpResult, ChecksumDriftError } from "./options.js";
 import { runWithDriver } from "./run-with-driver.js";
 import { runMigrationStep } from "./run-step.js";
@@ -24,9 +27,11 @@ export async function migrateUp(options: MigrateUpOptions = {}): Promise<Migrate
   const lockTimeout = resolveLockTimeout(options.lockTimeout);
 
   if (target !== undefined && only !== undefined) {
-    throw new Error(`Invalid up options: "to" and "only" cannot be combined`);
+    throw new BunsqlMigrateError("usage", `Invalid up options: "to" and "only" cannot be combined`);
   }
 
+  getDatabaseUrl(options.databaseUrl);
+  await assertMigrationsDirectory(listDir);
   await assertTargetOptions("up", listDir, target, undefined);
 
   return runWithDriver(options, async (driver) => {

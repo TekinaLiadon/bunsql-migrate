@@ -86,7 +86,7 @@ export async function runCli(
   args: string[],
   env: Record<string, string>,
   cwd?: string,
-): Promise<{ exitCode: number; output: string }> {
+): Promise<{ exitCode: number; output: string; stdout: string; stderr: string }> {
   const proc = Bun.spawn(["bun", CLI_ENTRY, ...args], {
     env,
     stdout: "pipe",
@@ -98,7 +98,7 @@ export async function runCli(
     new Response(proc.stdout).text(),
     new Response(proc.stderr).text(),
   ]);
-  return { exitCode, output: `${stdout}\n${stderr}` };
+  return { exitCode, output: `${stdout}\n${stderr}`, stdout, stderr };
 }
 
 export function readTables(dbPath: string): string[] {

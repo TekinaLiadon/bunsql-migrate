@@ -1,5 +1,6 @@
 import { SQL, type ReservedSQL } from "bun";
 import type { DriverTableOptions, ExecutedMigration, MigrationDriver } from "../core/driver.js";
+import { errorCode } from "../core/error.js";
 import { validateIdentifier } from "../core/identifiers.js";
 
 export const UNIQUE_INDEX_SUFFIX = "_migration_unique";
@@ -85,15 +86,8 @@ export function createReservedLock(
   };
 }
 
-function duplicateObjectCode(error: unknown): unknown {
-  if (error !== null && typeof error === "object" && "code" in error) {
-    return (error as { code: unknown }).code;
-  }
-  return undefined;
-}
-
 function isDuplicateObjectError(error: unknown): boolean {
-  const code = duplicateObjectCode(error);
+  const code = errorCode(error);
   if (code === 1060 || code === 1061 || code === "ER_DUP_FIELDNAME" || code === "ER_DUP_KEYNAME") {
     return true;
   }

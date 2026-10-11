@@ -1,7 +1,19 @@
 import { describe, it, expect } from "bun:test";
 import { writeFileSync } from "node:fs";
 import path from "node:path";
-import { ChecksumDriftError, InvalidIdentifierError, MigrationLockError } from "../src/index.js";
+import {
+  BunsqlMigrateError,
+  ChecksumDriftError,
+  DatabaseWaitTimeoutError,
+  GitStageError,
+  InvalidConfigError,
+  InvalidIdentifierError,
+  InvalidMigrationNameError,
+  MigrationFileMissingError,
+  MigrationLockError,
+  MigrationNotFoundError,
+  MigrationsDirectoryNotFoundError,
+} from "../src/index.js";
 import {
   EXIT_CHECKSUM_DRIFT,
   EXIT_GENERIC,
@@ -38,6 +50,42 @@ describe("exit code mapping", () => {
     expect(exitCodeForError(new MigrationLockError(30))).toBe(EXIT_LOCK_TIMEOUT);
     expect(exitCodeForError(new InvalidIdentifierError("table", "nope!", 63))).toBe(EXIT_USAGE);
     expect(exitCodeForError(new Error("something else"))).toBe(EXIT_GENERIC);
+  });
+
+  it("maps the error category to the exit code", () => {
+    expect(exitCodeForError(new BunsqlMigrateError("drift", "x"))).toBe(EXIT_CHECKSUM_DRIFT);
+    expect(exitCodeForError(new BunsqlMigrateError("lock", "x"))).toBe(EXIT_LOCK_TIMEOUT);
+    expect(exitCodeForError(new BunsqlMigrateError("usage", "x"))).toBe(EXIT_USAGE);
+    expect(exitCodeForError(new BunsqlMigrateError("generic", "x"))).toBe(EXIT_GENERIC);
+  });
+
+  it("maps every typed error through its category", () => {
+    expect(exitCodeForError(new InvalidConfigError("cfg.ts", "unknown key"))).toBe(EXIT_USAGE);
+    expect(exitCodeForError(new InvalidMigrationNameError("bad name"))).toBe(EXIT_USAGE);
+    expect(exitCodeForError(new MigrationsDirectoryNotFoundError("/nope"))).toBe(EXIT_USAGE);
+    expect(exitCodeForError(new MigrationNotFoundError("1_a.js"))).toBe(EXIT_GENERIC);
+    expect(exitCodeForError(new MigrationFileMissingError("1_a.js"))).toBe(EXIT_GENERIC);
+    expect(exitCodeForError(new DatabaseWaitTimeoutError(1))).toBe(EXIT_GENERIC);
+    expect(exitCodeForError(new GitStageError("1_a.js", 128, ""))).toBe(EXIT_GENERIC);
+  });
+
+  it("derives every typed error from BunsqlMigrateError", () => {
+    const typed = [
+      new ChecksumDriftError("1_a.js"),
+      new MigrationNotFoundError("1_a.js"),
+      new MigrationFileMissingError("1_a.js"),
+      new MigrationLockError(30),
+      new DatabaseWaitTimeoutError(1),
+      new GitStageError("1_a.js", 1, "ignored"),
+      new InvalidMigrationNameError("bad name"),
+      new InvalidIdentifierError("table", "nope!", 63),
+      new InvalidConfigError("cfg.ts", "unknown key"),
+      new MigrationsDirectoryNotFoundError("/nope"),
+    ];
+    for (const error of typed) {
+      expect(error).toBeInstanceOf(BunsqlMigrateError);
+      expect(error).toBeInstanceOf(Error);
+    }
   });
 });
 

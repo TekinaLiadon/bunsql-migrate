@@ -1,6 +1,7 @@
 import { resolveListDir } from "../core/fs.js";
 import { log } from "../core/console.js";
 import { formatDuration } from "../core/duration.js";
+import { BunsqlMigrateError } from "../core/error.js";
 import type { MigrationDriver } from "../core/driver.js";
 import { type MigrateDownOptions, type MigrateDownResult } from "./options.js";
 import { runWithDriver } from "./run-with-driver.js";
@@ -16,7 +17,10 @@ export function parseSteps(steps: number | "all" | undefined): number | "all" {
   if (steps === undefined) return 1;
   if (steps === "all") return "all";
   if (!Number.isInteger(steps) || steps < 1) {
-    throw new Error(`Invalid steps: ${String(steps)} — expected a positive integer or "all"`);
+    throw new BunsqlMigrateError(
+      "usage",
+      `Invalid steps: ${String(steps)} — expected a positive integer or "all"`,
+    );
   }
   return steps;
 }

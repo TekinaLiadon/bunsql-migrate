@@ -2,6 +2,7 @@ import path from "node:path";
 import { mkdir, open, unlink, type FileHandle } from "node:fs/promises";
 import { randomName } from "../core/random-name.js";
 import { resolveListDir } from "../core/fs.js";
+import { errorCode } from "../core/error.js";
 import { log } from "../core/console.js";
 import { GitStageError, validateMigrationName } from "./options.js";
 
@@ -69,7 +70,7 @@ async function writeStubExclusively(filePath: string, template: string): Promise
   try {
     handle = await open(filePath, "wx");
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+    if (errorCode(error) === "EEXIST") {
       return false;
     }
     throw error;

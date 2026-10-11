@@ -173,12 +173,18 @@ describe("CLI --wait", () => {
   });
 
   it("waits, then reports a timeout for a database that never becomes ready", async () => {
-    const run = await runCli(["status", "--url", "postgres://127.0.0.1:1/none", "--wait", "1"], {
-      ...process.env,
-      DATABASE_URL: "sqlite::memory:",
-    });
+    const scenario = makeScenario("bunsql-wait-timeout-", "db.sqlite");
+    try {
+      const run = await runCli(["status", "--url", "postgres://127.0.0.1:1/none", "--wait", "1"], {
+        ...process.env,
+        DATABASE_URL: "sqlite::memory:",
+        MIGRATION_LIST_DIR: scenario.listDir,
+      });
 
-    expect(run.exitCode).toBe(1);
-    expect(run.output).toContain("was not ready within 1s");
+      expect(run.exitCode).toBe(1);
+      expect(run.output).toContain("was not ready within 1s");
+    } finally {
+      scenario.cleanup();
+    }
   }, 10_000);
 });

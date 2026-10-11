@@ -1,14 +1,17 @@
+import { BunsqlMigrateError } from "./error.js";
+
 export type IdentifierKind = "table" | "schema";
 
 const IDENTIFIER_PATTERN = /^[A-Za-z_][A-Za-z0-9_$]*$/;
 
-export class InvalidIdentifierError extends Error {
+export class InvalidIdentifierError extends BunsqlMigrateError {
   readonly kind: IdentifierKind;
   readonly value: string;
 
   constructor(kind: IdentifierKind, value: string, maxLength: number, reason?: string) {
     const explanation = reason === undefined ? "" : ` — ${reason}`;
     super(
+      "usage",
       `Invalid ${kind} name: "${value}" — expected an identifier of letters, digits, underscores and dollar signs starting with a letter or underscore, at most ${maxLength} characters${explanation}`,
     );
     this.name = "InvalidIdentifierError";

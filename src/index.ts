@@ -4,8 +4,10 @@ import {
   type ExecutedMigration,
   type MigrationDriver,
 } from "./core/driver.js";
+import { BunsqlMigrateError, type MigrationErrorCategory } from "./core/error.js";
 import { InvalidIdentifierError } from "./core/identifiers.js";
 import { InvalidConfigError, loadProjectConfig, type ProjectConfig } from "./core/config.js";
+import { MigrationsDirectoryNotFoundError } from "./core/fs.js";
 import { migrateUp } from "./api/up.js";
 import { migrateDown } from "./api/down.js";
 import { migrateRedo } from "./api/redo.js";
@@ -45,6 +47,7 @@ export {
   createMigration,
   initMigrations,
   markMigrationsApplied,
+  BunsqlMigrateError,
   ChecksumDriftError,
   DatabaseWaitTimeoutError,
   GitStageError,
@@ -54,11 +57,13 @@ export {
   MigrationFileMissingError,
   MigrationLockError,
   MigrationNotFoundError,
+  MigrationsDirectoryNotFoundError,
 };
 export type {
   DriverTableOptions,
   ExecutedMigration,
   MigrationDriver,
+  MigrationErrorCategory,
   MigrateOptions,
   MigrateUpOptions,
   MigrateUpResult,

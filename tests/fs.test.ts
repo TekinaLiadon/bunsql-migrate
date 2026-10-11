@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from "bun:test";
-import { mkdirSync, rmSync, writeFileSync, readFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync, readFileSync, symlinkSync } from "node:fs";
 import path from "node:path";
 import { listFiles, resolveListDir, checksumFile, DEFAULT_MIGRATIONS_DIR } from "../src/core/fs.js";
 import {
@@ -290,6 +290,75 @@ export { up, down };
       }
 
       await expect(migrateUp(scenario.options)).rejects.toThrow(ChecksumDriftError);
+    } finally {
+      scenario.cleanup();
+    }
+  });
+});
+
+describe("listFiles() symlinks", () => {
+  it("follows symlinks to migration files", async () => {
+    const linkDir = path.join(testDir, "symlinks");
+    mkdirSync(linkDir, { recursive: true });
+    writeFileSync(path.join(testDir, "shared_migration_body.js"), "");
+
+    symlinkSync(path.join(testDir, "shared_migration_body.js"), path.join(linkDir, "1_link.js"));
+    symlinkSync(
+      path.join(testDir, "shared_migration_body.js"),
+      path.join(linkDir, "2_link.up.sql"),
+    );
+
+    const files = await listFiles(linkDir);
+    expect(files).toEqual(["2_link.up.sql", "1_link.js"]);
+  });
+
+  it("ignores broken symlinks instead of failing the listing", async () => {
+    const brokenDir = path.join(testDir, "symlinks-broken");
+    mkdirSync(brokenDir, { recursive: true });
+    writeFileSync(path.join(brokenDir, "1_real.js"), "");
+    symlinkSync(path.join(brokenDir, "missing_target.js"), path.join(brokenDir, "2_broken.js"));
+
+    const files = await listFiles(brokenDir);
+    expect(files).toEqual(["1_real.js"]);
+  });
+
+  it("does not list a symlink pointing at a directory", async () => {
+    const dirLinkParent = path.join(testDir, "symlinks-dir");
+    const targetDir = path.join(dirLinkParent, "nested");
+    mkdirSync(targetDir, { recursive: true });
+    symlinkSync(targetDir, path.join(dirLinkParent, "1_dir.js"));
+
+    const files = await listFiles(dirLinkParent);
+    expect(files).toEqual([]);
+  });
+
+  it("applies a migrations directory built entirely from symlinks", async () => {
+    const scenario = makeScenario("bunsql-symlink-", "symlink.db");
+    const sharedDir = path.join(scenario.dir, "shared");
+    try {
+      mkdirSync(sharedDir, { recursive: true });
+      for (const [file, table] of [
+        ["1_shared.js", "symlink_table_one"],
+        ["2_shared.js", "symlink_table_two"],
+      ] as const) {
+        writeFileSync(
+          path.join(sharedDir, file),
+          `const up = async (tx) => {
+  await tx\`CREATE TABLE ${table} (id INTEGER)\`;
+};
+const down = async (tx) => {};
+export { up, down };
+`,
+        );
+        symlinkSync(path.join(sharedDir, file), path.join(scenario.listDir, file));
+      }
+
+      const result = await migrateUp(scenario.options);
+      expect(result.applied).toEqual(["2_shared.js", "1_shared.js"]);
+
+      const status = await migrateStatus(scenario.options);
+      expect(status.pending).toEqual([]);
+      expect(readTables(scenario.dbPath)).toContain("symlink_table_two");
     } finally {
       scenario.cleanup();
     }

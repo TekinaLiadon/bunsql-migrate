@@ -1,4 +1,8 @@
-import { listMigrationFiles, resolveListDir } from "../core/fs.js";
+import {
+  listMigrationFiles,
+  MigrationsDirectoryNotFoundError,
+  resolveListDir,
+} from "../core/fs.js";
 import { log } from "../core/console.js";
 import { createMigration, type MigrationLang } from "./create.js";
 
@@ -16,7 +20,7 @@ async function existingMigrations(listDir: string): Promise<string[]> {
   try {
     return await listMigrationFiles(listDir);
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+    if (error instanceof MigrationsDirectoryNotFoundError) {
       return [];
     }
     throw error;

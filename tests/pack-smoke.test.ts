@@ -184,6 +184,7 @@ describe("pack smoke test (tarball as a consumer sees it)", () => {
   installMigrations,
   createMigration,
   createDriver,
+  BunsqlMigrateError,
   ChecksumDriftError,
   GitStageError,
 } from "bunsql-native-migrate";
@@ -197,7 +198,12 @@ const driver = await createDriver(process.env.DATABASE_URL!);
 const executed = await driver.listExecuted();
 await driver.close();
 
-if (typeof ChecksumDriftError !== "function" || typeof GitStageError !== "function") {
+if (
+  typeof BunsqlMigrateError !== "function" ||
+  typeof ChecksumDriftError !== "function" ||
+  typeof GitStageError !== "function" ||
+  !(new ChecksumDriftError("x") instanceof BunsqlMigrateError)
+) {
   throw new Error("error classes missing from the installed package");
 }
 if (
