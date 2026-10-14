@@ -157,4 +157,30 @@ describe("migrateStatus()", () => {
       scenario.cleanup();
     }
   });
+
+  it("ignores helper files starting with underscore next to the migrations", async () => {
+    const scenario = makeScenario("bunsql-status-", "status.db");
+    try {
+      writeMigration(
+        scenario.listDir,
+        "9_first.js",
+        "await tx`CREATE TABLE first_table (id INTEGER)`;",
+      );
+      writeFileSync(
+        path.join(scenario.listDir, "_helpers.ts"),
+        "export const helper = (value: number) => value + 1;\n",
+      );
+
+      const pending = await migrateStatus(scenario.options);
+      expect(pending.pending).toEqual(["9_first.js"]);
+
+      await migrateUp(scenario.options);
+
+      const applied = await migrateStatus(scenario.options);
+      expect(applied.applied.map((entry) => entry.name)).toEqual(["9_first.js"]);
+      expect(applied.pending).toEqual([]);
+    } finally {
+      scenario.cleanup();
+    }
+  });
 });

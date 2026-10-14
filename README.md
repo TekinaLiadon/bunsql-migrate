@@ -89,7 +89,7 @@ const down = async () => {
 export { up, down };
 ```
 
-Files live in the migrations directory (default `./migrations`, override with `--dir` or the `MIGRATION_LIST_DIR` env var) and are applied in descending filename order. Any file ending in `.js`, `.ts` or `.up.sql` is a migration (TypeScript declaration files — `*.d.ts` — are ignored, so a `types.d.ts` next to the migrations never shows up as pending), `.js` and `.ts` both work — Bun runs TypeScript natively — and the order is decided purely by the filename, never by the extension. Symlinks to migration files count as migrations (the link target is resolved and must be a file) — so a monorepo can compose a per-service migrations directory from a shared base; broken symlinks are ignored. `bunsql-native-migrate create` generates TypeScript stubs by default (`--lang js` for JavaScript) with an inverted timestamp prefix so newer migrations sort first:
+Files live in the migrations directory (default `./migrations`, override with `--dir` or the `MIGRATION_LIST_DIR` env var) and are applied in descending filename order. Any file ending in `.js`, `.ts` or `.up.sql` is a migration, `.js` and `.ts` both work — Bun runs TypeScript natively — and the order is decided purely by the filename, never by the extension. TypeScript declaration files (`*.d.ts`) are ignored, so a `types.d.ts` next to the migrations never shows up as pending. Files whose name starts with `_` are treated as helper modules, not migrations — keep shared code like `_db.ts` or `_seed-data.js` next to your migrations and it stays out of `up`, `status` and `mark --all` entirely. Everything else in the directory that is not a migration file is ignored too. Symlinks to migration files count as migrations (the link target is resolved and must be a file) — so a monorepo can compose a per-service migrations directory from a shared base; broken symlinks are ignored. `bunsql-native-migrate create` generates TypeScript stubs by default (`--lang js` for JavaScript) with an inverted timestamp prefix so newer migrations sort first:
 
 ```
 9999999999999_2026_09_13_add_users_table.ts
@@ -387,6 +387,14 @@ Applied migrations are recorded in a `migrations` table with a unique name and a
 ```
 
 Records created before checksums existed (checksum `NULL`) are backfilled on the next `up`.
+
+`up` also reports the opposite divergence — a tracking record whose file is missing from the migrations directory:
+
+```
+1_first.js is applied in the database but missing from /app/migrations — down/redo will fail until the file is restored or its record removed
+```
+
+The run still succeeds (deliberately deleting an applied migration is legitimate — e.g. after squashing history), but the warning surfaces the inconsistency on the next `up` (and `up --dry-run`) instead of letting it appear later as a `down`/`redo` failure.
 
 Before hashing, the file content is normalized: line endings become LF and a leading UTF-8 BOM is stripped, so the same migration checked out with CRLF (git `autocrlf` on Windows) or saved with a BOM hashes exactly like its LF twin — a cross-OS checkout never produces a false drift. Records written before this normalization existed (raw-byte checksums) are still recognized: `up` matches them against the unnormalized byte variants of the current file and re-saves the normalized checksum, the same way `NULL` checksums are backfilled.
 

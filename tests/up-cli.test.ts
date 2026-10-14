@@ -247,6 +247,56 @@ describe("bunsql-migrate CLI", () => {
     }
   });
 
+  it("warns when an applied migration file is deleted and still exits 0", async () => {
+    const { dbPath, listDir, env, cleanup } = makeCliScenario();
+    try {
+      writeMigration(listDir, "2_second.js", "await sql`CREATE TABLE second_table (id INTEGER)`;");
+      writeMigration(listDir, "1_first.js", "await sql`CREATE TABLE first_table (id INTEGER)`;");
+      expect((await runCli(["up"], env)).exitCode).toBe(0);
+      rmSync(path.join(listDir, "1_first.js"));
+
+      const up = await runCli(["up"], env);
+      expect(up.exitCode).toBe(0);
+      expect(up.stderr).toContain("1_first.js is applied in the database but missing from");
+      expect(up.stderr).toContain("down/redo will fail until the file is restored");
+      expect(up.stdout).not.toContain("missing from");
+      expect(readRecorded(dbPath)).toEqual(["2_second.js", "1_first.js"]);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("warns about a deleted applied migration in a dry run without touching the database", async () => {
+    const { dbPath, listDir, env, cleanup } = makeCliScenario();
+    try {
+      writeMigration(listDir, "2_second.js", "await sql`CREATE TABLE second_table (id INTEGER)`;");
+      writeMigration(listDir, "1_first.js", "await sql`CREATE TABLE first_table (id INTEGER)`;");
+      expect((await runCli(["up"], env)).exitCode).toBe(0);
+      rmSync(path.join(listDir, "1_first.js"));
+
+      const dry = await runCli(["up", "--dry-run"], env);
+      expect(dry.exitCode).toBe(0);
+      expect(dry.stderr).toContain("1_first.js is applied in the database but missing from");
+      expect(readRecorded(dbPath)).toEqual(["2_second.js", "1_first.js"]);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("stays silent about missing files when every applied migration is on disk", async () => {
+    const { listDir, env, cleanup } = makeCliScenario();
+    try {
+      writeMigration(listDir, "1_first.js", "await sql`CREATE TABLE first_table (id INTEGER)`;");
+      expect((await runCli(["up"], env)).exitCode).toBe(0);
+
+      const repeat = await runCli(["up"], env);
+      expect(repeat.exitCode).toBe(0);
+      expect(repeat.stderr).not.toContain("missing from");
+    } finally {
+      cleanup();
+    }
+  });
+
   it("does not fail on a repeated run with unchanged files", async () => {
     const { listDir, env, cleanup } = makeCliScenario();
     try {

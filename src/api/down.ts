@@ -35,7 +35,10 @@ async function revertOne(driver: MigrationDriver, listDir: string, file: string)
 
   if (down === null) {
     const reason = isSqlMigration(file) ? "has no .down.sql pair" : "has no down() export";
-    log({ text: `${file} ${reason}, removing tracking record`, type: "warn" });
+    log({
+      text: `${file} ${reason}, removing tracking record — prefix the name with _ (or rename to *.d.ts) if this is a helper module`,
+      type: "warn",
+    });
     await driver.remove(file);
     log({ text: `${file} tracking record removed`, type: "success" });
     return;

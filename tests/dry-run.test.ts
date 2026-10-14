@@ -1,5 +1,5 @@
-import { describe, it, expect } from "bun:test";
-import { writeFileSync } from "node:fs";
+import { describe, it, expect, spyOn } from "bun:test";
+import { rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { migrateUp, migrateDown, ChecksumDriftError } from "../src/index.js";
 import { makeScenario, readRecorded, readRecords, readTables, withSqlite } from "./helpers.js";
@@ -100,6 +100,53 @@ describe("migrateUp dryRun", () => {
       expect(result.applied).toEqual([]);
       expect(result.planned).toEqual([]);
       expect(readRecords(scenario.dbPath).map((record) => record.checksum)).toEqual([null]);
+    } finally {
+      scenario.cleanup();
+    }
+  });
+
+  it("warns about an applied migration whose file is missing from disk", async () => {
+    const scenario = makeScenario("bunsql-dryrun-");
+    try {
+      writeMigration(scenario.listDir, "1_a.js", "a_table");
+      writeMigration(scenario.listDir, "2_b.js", "b_table");
+      await migrateUp({ ...scenario.options, to: "2_b.js" });
+      rmSync(path.join(scenario.listDir, "2_b.js"));
+
+      const errorSpy = spyOn(console, "error");
+      try {
+        const result = await migrateUp({ ...scenario.options, dryRun: true });
+
+        expect(result.applied).toEqual([]);
+        expect(result.planned).toEqual(["1_a.js"]);
+        const warned = errorSpy.mock.calls.map((call) => String(call[1])).join("\n");
+        expect(warned).toContain("2_b.js is applied in the database but missing from");
+        expect(warned).toContain("down/redo will fail until the file is restored");
+      } finally {
+        errorSpy.mockRestore();
+      }
+
+      expect(readRecorded(scenario.dbPath)).toEqual(["2_b.js"]);
+    } finally {
+      scenario.cleanup();
+    }
+  });
+
+  it("stays silent when every applied migration file is on disk", async () => {
+    const scenario = makeScenario("bunsql-dryrun-");
+    try {
+      writeMigration(scenario.listDir, "1_a.js", "a_table");
+      await migrateUp(scenario.options);
+
+      const errorSpy = spyOn(console, "error");
+      try {
+        await migrateUp({ ...scenario.options, dryRun: true });
+
+        const warned = errorSpy.mock.calls.map((call) => String(call[1])).join("\n");
+        expect(warned).not.toContain("missing from");
+      } finally {
+        errorSpy.mockRestore();
+      }
     } finally {
       scenario.cleanup();
     }

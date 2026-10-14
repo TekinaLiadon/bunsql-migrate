@@ -1,4 +1,5 @@
 import path from "node:path";
+import type { ExecutedMigration } from "../core/driver.js";
 import {
   assertMigrationsDirectory,
   checksumFiles,
@@ -18,6 +19,21 @@ import { loadMigration } from "./load-migration.js";
 import { assertTargetOptions, resolvePendingToFiles, resolvePendingToTarget } from "./pending.js";
 import { resolveLockTimeout, withMigrationLock } from "./lock.js";
 import { loadExecutedHistory } from "./tracking-table.js";
+
+function warnAppliedButMissingFiles(
+  listDir: string,
+  executed: readonly ExecutedMigration[],
+  allFiles: readonly string[],
+): void {
+  const files = new Set(allFiles);
+  for (const entry of executed) {
+    if (files.has(entry.name)) continue;
+    log({
+      text: `${entry.name} is applied in the database but missing from ${listDir} — down/redo will fail until the file is restored or its record removed`,
+      type: "warn",
+    });
+  }
+}
 
 export async function migrateUp(options: MigrateUpOptions = {}): Promise<MigrateUpResult> {
   const listDir = resolveListDir(options.listDir);
@@ -40,6 +56,7 @@ export async function migrateUp(options: MigrateUpOptions = {}): Promise<Migrate
       const checksums = await checksumFiles(listDir, allFiles);
       const executed = await loadExecutedHistory(driver, dryRun);
       const executedByName = new Map(executed.map((entry) => [entry.name, entry]));
+      warnAppliedButMissingFiles(listDir, executed, allFiles);
 
       for (const [file, checksum] of checksums) {
         const record = executedByName.get(file);
@@ -93,7 +110,10 @@ export async function migrateUp(options: MigrateUpOptions = {}): Promise<Migrate
           try {
             const { up } = await loadMigration(listDir, file);
             if (up === null) {
-              log({ text: `${file} has no up() export, skipping`, type: "warn" });
+              log({
+                text: `${file} has no up() export, skipping — prefix the name with _ (or rename to *.d.ts) if this is a helper module`,
+                type: "warn",
+              });
               continue;
             }
             const durationMs = await runMigrationStep(driver, up);

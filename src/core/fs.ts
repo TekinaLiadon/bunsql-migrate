@@ -43,6 +43,7 @@ export async function assertMigrationsDirectory(listDir: string): Promise<void> 
 }
 
 export function isMigrationFileName(name: string): boolean {
+  if (name.startsWith("_")) return false;
   if (name.endsWith(DECLARATION_SUFFIX)) return false;
   return MIGRATION_SUFFIXES.some((suffix) => name.endsWith(suffix));
 }

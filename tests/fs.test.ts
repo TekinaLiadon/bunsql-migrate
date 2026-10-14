@@ -61,6 +61,20 @@ describe("listFiles()", () => {
     expect(files).not.toContain("env.d.ts");
   });
 
+  it("ignores helper files starting with underscore (_)", async () => {
+    const helperDir = path.join(testDir, "underscore-helpers");
+    mkdirSync(helperDir, { recursive: true });
+    writeFileSync(path.join(helperDir, "1_real.ts"), "");
+    writeFileSync(path.join(helperDir, "2_real.up.sql"), "");
+    writeFileSync(path.join(helperDir, "3_real.js"), "");
+    writeFileSync(path.join(helperDir, "_helpers.ts"), "");
+    writeFileSync(path.join(helperDir, "_utils.js"), "");
+    writeFileSync(path.join(helperDir, "_shared.up.sql"), "");
+
+    const files = await listFiles(helperDir);
+    expect(files).toEqual(["3_real.js", "2_real.up.sql", "1_real.ts"]);
+  });
+
   it("returns an empty array for an empty directory", async () => {
     const emptyDir = path.join(testDir, "empty");
     mkdirSync(emptyDir, { recursive: true });
