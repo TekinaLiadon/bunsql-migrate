@@ -1,7 +1,7 @@
 import { describe, it, expect } from "bun:test";
 import { existsSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { createDriver, migrateUp } from "../src/index.js";
+import { createDriver, migrateUp, BunsqlMigrateError } from "../src/index.js";
 import { DEFAULT_BUSY_TIMEOUT_MS } from "../src/drivers/sqlite.js";
 import { makeScenario, readRowCount, readRecorded, runCli } from "./helpers.js";
 
@@ -69,12 +69,43 @@ describe("migrateUp() locking on SQLite", () => {
     const scenario = makeScenario("bunsql-up-lock-", "lock.db");
     try {
       await expect(migrateUp({ ...scenario.options, lockTimeout: -1 })).rejects.toThrow(
-        /lockTimeout/,
+        BunsqlMigrateError,
       );
       await expect(migrateUp({ ...scenario.options, lockTimeout: 1.5 })).rejects.toThrow(
         /lockTimeout/,
       );
+      let caught: unknown;
+      try {
+        await migrateUp({ ...scenario.options, lockTimeout: -1 });
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught).toBeInstanceOf(BunsqlMigrateError);
+      expect((caught as BunsqlMigrateError).category).toBe("usage");
+      expect(existsSync(scenario.dbPath)).toBe(false);
     } finally {
+      scenario.cleanup();
+    }
+  });
+
+  it("reports a missing DATABASE_URL before an invalid lockTimeout or to+only", async () => {
+    const scenario = makeScenario("bunsql-up-lock-", "lock.db");
+    const originalUrl = process.env.DATABASE_URL;
+    delete process.env.DATABASE_URL;
+    try {
+      await expect(migrateUp({ listDir: scenario.listDir, lockTimeout: -1 })).rejects.toThrow(
+        /DATABASE_URL is not set/,
+      );
+      await expect(
+        migrateUp({ listDir: scenario.listDir, to: "1_a.js", only: ["1_a.js"] }),
+      ).rejects.toThrow(/DATABASE_URL is not set/);
+      expect(existsSync(scenario.dbPath)).toBe(false);
+    } finally {
+      if (originalUrl === undefined) {
+        delete process.env.DATABASE_URL;
+      } else {
+        process.env.DATABASE_URL = originalUrl;
+      }
       scenario.cleanup();
     }
   });

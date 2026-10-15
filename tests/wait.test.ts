@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { DatabaseWaitTimeoutError } from "../src/index.js";
+import { BunsqlMigrateError, DatabaseWaitTimeoutError } from "../src/index.js";
 import { connectDriver, resolveWaitTimeout, waitForDatabase } from "../src/api/wait.js";
 import { makeScenario, runCli } from "./helpers.js";
 
@@ -30,11 +30,20 @@ describe("resolveWaitTimeout()", () => {
     expect(resolveWaitTimeout(7)).toBe(7);
   });
 
-  it("rejects negative, fractional and non-finite values", () => {
+  it("rejects negative, fractional and non-finite values with a usage error", () => {
+    expect(() => resolveWaitTimeout(-1)).toThrow(BunsqlMigrateError);
     expect(() => resolveWaitTimeout(-1)).toThrow(/waitTimeout/);
     expect(() => resolveWaitTimeout(1.5)).toThrow(/waitTimeout/);
     expect(() => resolveWaitTimeout(Number.NaN)).toThrow(/waitTimeout/);
     expect(() => resolveWaitTimeout(Number.POSITIVE_INFINITY)).toThrow(/waitTimeout/);
+    let caught: unknown;
+    try {
+      resolveWaitTimeout(-1);
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(BunsqlMigrateError);
+    expect((caught as BunsqlMigrateError).category).toBe("usage");
   });
 });
 
@@ -71,6 +80,31 @@ describe("waitForDatabase()", () => {
     expect((error as DatabaseWaitTimeoutError).cause).toBeInstanceOf(Error);
     expect(((error as DatabaseWaitTimeoutError).cause as Error).message).toMatch(/boom-/);
     expect(stub.attempts()).toBeGreaterThanOrEqual(2);
+  });
+
+  it("aborts a still-pending attempt at the deadline", async () => {
+    let release: (() => void) | undefined;
+    const hanging = new Promise<string>((resolve) => {
+      release = () => resolve("connected-too-late");
+    });
+    const attempt = async (): Promise<string> => hanging;
+
+    const started = Date.now();
+    const error = await waitForDatabase(attempt, 1, 1).then(
+      () => null,
+      (caught: unknown) => caught,
+    );
+    const elapsed = Date.now() - started;
+
+    expect(error).toBeInstanceOf(DatabaseWaitTimeoutError);
+    expect((error as DatabaseWaitTimeoutError).message).toContain("was not ready within 1s");
+    expect((error as DatabaseWaitTimeoutError).message).toContain(
+      "connection attempt still in progress",
+    );
+    expect(elapsed).toBeGreaterThanOrEqual(990);
+    expect(elapsed).toBeLessThan(5000);
+    release?.();
+    expect(await hanging).toBe("connected-too-late");
   });
 });
 

@@ -1,5 +1,6 @@
-import { resolveListDir } from "../core/fs.js";
+import { assertMigrationsDirectory, resolveListDir } from "../core/fs.js";
 import { log } from "../core/console.js";
+import { getDatabaseUrl } from "../core/env.js";
 import { type RedoOptions, type RedoResult } from "./options.js";
 import { migrateDown, parseSteps } from "./down.js";
 import { migrateUp } from "./up.js";
@@ -31,8 +32,11 @@ async function warnPartialRevert(
 export async function migrateRedo(options: RedoOptions = {}): Promise<RedoResult> {
   const listDir = resolveListDir(options.listDir);
   const target = options.to;
-  const steps = parseSteps(options.steps);
 
+  getDatabaseUrl(options.databaseUrl);
+  await assertMigrationsDirectory(listDir);
+
+  const steps = parseSteps(options.steps);
   await assertTargetOptions("redo", listDir, target, options.steps);
 
   const applied = await runWithDriver(options, (driver) => listExecutedForPlan(driver));

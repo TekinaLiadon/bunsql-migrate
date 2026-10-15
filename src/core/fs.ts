@@ -22,6 +22,19 @@ export class MigrationsDirectoryNotFoundError extends BunsqlMigrateError {
   }
 }
 
+export class MigrationsDirectoryNotADirectoryError extends BunsqlMigrateError {
+  readonly directory: string;
+
+  constructor(directory: string) {
+    super(
+      "usage",
+      `migrations directory path is taken by a file: ${directory} — remove the file or pass --dir`,
+    );
+    this.name = "MigrationsDirectoryNotADirectoryError";
+    this.directory = directory;
+  }
+}
+
 function toMissingDirectoryError(dir: string, error: unknown): Error {
   const code = errorCode(error);
   if (code === "ENOENT" || code === "ENOTDIR") {

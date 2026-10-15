@@ -1,8 +1,20 @@
 import { describe, it, expect } from "bun:test";
-import { rmSync } from "node:fs";
+import { existsSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { migrateDown, migrateUp, MigrationNotFoundError } from "../src/index.js";
-import { makeScenario, readRecorded, readTables, runCli, writeTableMigration } from "./helpers.js";
+import {
+  migrateDown,
+  migrateUp,
+  MigrationNotFoundError,
+  InvalidMigrationRecordError,
+} from "../src/index.js";
+import {
+  makeScenario,
+  readRecorded,
+  readTables,
+  runCli,
+  withSqlite,
+  writeTableMigration,
+} from "./helpers.js";
 
 function writeScenario(listDir: string): void {
   writeTableMigration(listDir, "4_d.js", "d_table");
@@ -111,6 +123,43 @@ describe("migrateDown to", () => {
       ).rejects.toThrow(/cannot be combined/);
 
       expect(readRecorded(scenario.dbPath)).toEqual(before);
+    } finally {
+      scenario.cleanup();
+    }
+  });
+
+  it("rejects invalid steps before connecting", async () => {
+    const scenario = makeScenario("bunsql-down-steps-");
+    try {
+      writeScenario(scenario.listDir);
+
+      await expect(migrateDown({ ...scenario.options, steps: 0 })).rejects.toThrow(/Invalid steps/);
+
+      expect(existsSync(scenario.dbPath)).toBe(false);
+    } finally {
+      scenario.cleanup();
+    }
+  });
+
+  it("rejects a tracking record whose name escapes the migrations directory", async () => {
+    const scenario = makeScenario("bunsql-down-traversal-", "db.sqlite");
+    try {
+      writeTableMigration(scenario.listDir, "1_a.js", "a_table");
+      await migrateUp(scenario.options);
+      writeFileSync(
+        path.join(scenario.dir, "evil.up.sql"),
+        "CREATE TABLE evil_table (id INTEGER);\n",
+      );
+      withSqlite(scenario.dbPath, (db) => {
+        db.run(`INSERT INTO migrations (migration, checksum) VALUES ('../evil.up.sql', NULL)`);
+      });
+
+      await expect(migrateDown({ ...scenario.options, steps: "all" })).rejects.toBeInstanceOf(
+        InvalidMigrationRecordError,
+      );
+
+      expect(readTables(scenario.dbPath)).not.toContain("evil_table");
+      expect(readRecorded(scenario.dbPath)).toContain("1_a.js");
     } finally {
       scenario.cleanup();
     }

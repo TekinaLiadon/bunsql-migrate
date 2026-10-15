@@ -23,7 +23,28 @@ export async function withMigrationLock<T>(
 
   const deadline = Date.now() + timeoutSeconds * 1000;
   let waitingLogged = false;
-  while (!(await tryLock(timeoutSeconds))) {
+  let retryLogged = false;
+  while (true) {
+    let acquired: boolean;
+    try {
+      acquired = await tryLock(timeoutSeconds);
+    } catch {
+      if (Date.now() >= deadline) {
+        throw new MigrationLockError(timeoutSeconds);
+      }
+      if (!retryLogged) {
+        log({
+          text: "checking the migration lock failed — retrying until the timeout",
+          type: "warn",
+        });
+        retryLogged = true;
+      }
+      await Bun.sleep(LOCK_RETRY_DELAY_MS);
+      continue;
+    }
+    if (acquired) {
+      break;
+    }
     if (Date.now() >= deadline) {
       throw new MigrationLockError(timeoutSeconds);
     }
@@ -36,7 +57,12 @@ export async function withMigrationLock<T>(
 
   try {
     const result = await run();
-    await releaseLock();
+    await releaseLock().catch(() => {
+      log({
+        text: "failed to release the migration lock — it will be reclaimed when the connection closes",
+        type: "warn",
+      });
+    });
     return result;
   } catch (error) {
     await releaseLock().catch(() => undefined);

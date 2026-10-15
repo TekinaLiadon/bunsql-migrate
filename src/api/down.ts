@@ -1,6 +1,7 @@
-import { resolveListDir } from "../core/fs.js";
+import { assertMigrationsDirectory, resolveListDir } from "../core/fs.js";
 import { log } from "../core/console.js";
 import { formatDuration } from "../core/duration.js";
+import { getDatabaseUrl } from "../core/env.js";
 import { BunsqlMigrateError } from "../core/error.js";
 import type { MigrationDriver } from "../core/driver.js";
 import { type MigrateDownOptions, type MigrateDownResult } from "./options.js";
@@ -25,9 +26,8 @@ export function parseSteps(steps: number | "all" | undefined): number | "all" {
   return steps;
 }
 
-function resolveStepCount(steps: number | "all" | undefined, appliedCount: number): number {
-  const parsed = parseSteps(steps);
-  return parsed === "all" ? appliedCount : parsed;
+function resolveStepCount(steps: number | "all", appliedCount: number): number {
+  return steps === "all" ? appliedCount : steps;
 }
 
 async function revertOne(driver: MigrationDriver, listDir: string, file: string): Promise<void> {
@@ -54,6 +54,10 @@ export async function migrateDown(options: MigrateDownOptions = {}): Promise<Mig
   const dryRun = options.dryRun ?? false;
   const target = options.to;
 
+  getDatabaseUrl(options.databaseUrl);
+  await assertMigrationsDirectory(listDir);
+
+  const steps = parseSteps(options.steps);
   await assertTargetOptions("down", listDir, target, options.steps);
 
   return runWithDriver(options, async (driver) => {
@@ -65,7 +69,7 @@ export async function migrateDown(options: MigrateDownOptions = {}): Promise<Mig
       }
 
       const appliedNames = executed.map((entry) => entry.name);
-      let count = resolveStepCount(options.steps, executed.length);
+      let count = resolveStepCount(steps, executed.length);
       if (target !== undefined) {
         const boundary = appliedNames.indexOf(target);
         if (boundary === -1) {

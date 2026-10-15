@@ -92,6 +92,19 @@ export class MigrationFileMissingError extends BunsqlMigrateError {
   }
 }
 
+export class InvalidMigrationRecordError extends BunsqlMigrateError {
+  readonly file: string;
+
+  constructor(file: string) {
+    super(
+      "generic",
+      `${file} in the tracking table is not a flat migration file name — the record cannot be legitimate, remove it manually`,
+    );
+    this.name = "InvalidMigrationRecordError";
+    this.file = file;
+  }
+}
+
 export class MigrationLockError extends BunsqlMigrateError {
   readonly timeoutSeconds: number;
 

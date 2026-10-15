@@ -121,6 +121,7 @@ export async function createSqlDriver(
   if (dialect.setupConnection) {
     await dialect.setupConnection(db);
   }
+  const { trackingTableExists, trackingTableCurrent } = dialect;
 
   return {
     install: () => dialect.install(db),
@@ -142,12 +143,8 @@ export async function createSqlDriver(
       await db`DELETE FROM ${db.unsafe(table)} WHERE migration = ${migration}`;
     },
     transaction: (run) => db.begin(run),
-    ...(dialect.trackingTableExists
-      ? { trackingTableExists: () => dialect.trackingTableExists!(db) }
-      : {}),
-    ...(dialect.trackingTableCurrent
-      ? { trackingTableCurrent: () => dialect.trackingTableCurrent!(db) }
-      : {}),
+    ...(trackingTableExists ? { trackingTableExists: () => trackingTableExists(db) } : {}),
+    ...(trackingTableCurrent ? { trackingTableCurrent: () => trackingTableCurrent(db) } : {}),
     ...(lock
       ? {
           tryLock: (timeoutSeconds: number) => lock.tryLock(timeoutSeconds),
@@ -155,8 +152,11 @@ export async function createSqlDriver(
         }
       : {}),
     async close() {
-      await lock?.dispose();
-      db.close({ timeout: 0 });
+      try {
+        await lock?.dispose();
+      } finally {
+        db.close({ timeout: 0 });
+      }
     },
   };
 }

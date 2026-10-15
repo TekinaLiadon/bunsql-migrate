@@ -1,3 +1,5 @@
+import { BunsqlMigrateError } from "./error.js";
+
 export function resolveSecondsOption(
   option: string,
   value: number | undefined,
@@ -7,7 +9,8 @@ export function resolveSecondsOption(
     return fallback;
   }
   if (!Number.isInteger(value) || value < 0) {
-    throw new Error(
+    throw new BunsqlMigrateError(
+      "usage",
       `Invalid ${option}: ${String(value)} — expected a non-negative integer of seconds`,
     );
   }

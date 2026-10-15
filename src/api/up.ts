@@ -16,7 +16,12 @@ import { type MigrateUpOptions, type MigrateUpResult, ChecksumDriftError } from 
 import { runWithDriver } from "./run-with-driver.js";
 import { runMigrationStep } from "./run-step.js";
 import { loadMigration } from "./load-migration.js";
-import { assertTargetOptions, resolvePendingToFiles, resolvePendingToTarget } from "./pending.js";
+import {
+  assertTargetInFiles,
+  assertTargetOptions,
+  resolvePendingToFiles,
+  resolvePendingToTarget,
+} from "./pending.js";
 import { resolveLockTimeout, withMigrationLock } from "./lock.js";
 import { loadExecutedHistory } from "./tracking-table.js";
 
@@ -40,15 +45,22 @@ export async function migrateUp(options: MigrateUpOptions = {}): Promise<Migrate
   const target = options.to;
   const { only } = options;
   const dryRun = options.dryRun ?? false;
-  const lockTimeout = resolveLockTimeout(options.lockTimeout);
 
+  getDatabaseUrl(options.databaseUrl);
+
+  const lockTimeout = resolveLockTimeout(options.lockTimeout);
   if (target !== undefined && only !== undefined) {
     throw new BunsqlMigrateError("usage", `Invalid up options: "to" and "only" cannot be combined`);
   }
 
-  getDatabaseUrl(options.databaseUrl);
   await assertMigrationsDirectory(listDir);
   await assertTargetOptions("up", listDir, target, undefined);
+  if (only !== undefined) {
+    const allFiles = await listMigrationFiles(listDir);
+    for (const file of only) {
+      assertTargetInFiles(allFiles, file);
+    }
+  }
 
   return runWithDriver(options, async (driver) => {
     const run = async (): Promise<MigrateUpResult> => {

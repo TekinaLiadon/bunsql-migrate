@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { writeFileSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { migrateRedo, migrateUp, migrateStatus, MigrationNotFoundError } from "../src/index.js";
 import { checksumFile } from "../src/core/fs.js";
@@ -194,6 +194,10 @@ describe("migrateRedo()", () => {
       await expect(migrateUp({ ...scenario.options, only: ["missing.js"] })).rejects.toBeInstanceOf(
         MigrationNotFoundError,
       );
+      await expect(
+        migrateUp({ ...scenario.options, only: ["1_a.js", "missing.js"] }),
+      ).rejects.toBeInstanceOf(MigrationNotFoundError);
+      expect(existsSync(scenario.dbPath)).toBe(false);
     } finally {
       scenario.cleanup();
     }

@@ -18,10 +18,12 @@ export async function waitForDatabase<T>(
   let waitingLogged = false;
   while (true) {
     try {
-      return await attempt();
+      return await attemptWithinDeadline(attempt, deadline, timeoutSeconds);
     } catch (error) {
       if (Date.now() >= deadline) {
-        throw new DatabaseWaitTimeoutError(timeoutSeconds, error);
+        throw error instanceof DatabaseWaitTimeoutError
+          ? error
+          : new DatabaseWaitTimeoutError(timeoutSeconds, error);
       }
       if (!waitingLogged) {
         log({ text: `database is not ready — waiting up to ${timeoutSeconds}s`, type: "info" });
@@ -30,6 +32,26 @@ export async function waitForDatabase<T>(
       await Bun.sleep(retryDelayMs);
     }
   }
+}
+
+function attemptWithinDeadline<T>(
+  attempt: () => Promise<T>,
+  deadline: number,
+  timeoutSeconds: number,
+): Promise<T> {
+  if (timeoutSeconds <= 0) {
+    return attempt();
+  }
+  const pending = attempt();
+  pending.catch(() => undefined);
+  const expired = Bun.sleep(Math.max(deadline - Date.now(), 0)).then(() => {
+    throw new DatabaseWaitTimeoutError(
+      timeoutSeconds,
+      new Error("connection attempt still in progress"),
+    );
+  });
+  expired.catch(() => undefined);
+  return Promise.race([pending, expired]);
 }
 
 async function connectProbed(

@@ -1,7 +1,7 @@
 import path from "node:path";
 import { mkdir, open, unlink, type FileHandle } from "node:fs/promises";
 import { randomName } from "../core/random-name.js";
-import { resolveListDir } from "../core/fs.js";
+import { MigrationsDirectoryNotADirectoryError, resolveListDir } from "../core/fs.js";
 import { errorCode } from "../core/error.js";
 import { log } from "../core/console.js";
 import { GitStageError, validateMigrationName } from "./options.js";
@@ -39,14 +39,23 @@ function stubTemplate(lang: MigrationLang): string {
   return lang === "js" ? JS_TEMPLATE : TS_TEMPLATE;
 }
 
+const GIT_COMMAND_NOT_FOUND_EXIT_CODE = 127;
+
 async function stageInGit(filePath: string): Promise<void> {
-  const add = Bun.spawn({
-    cmd: ["git", "add", filePath],
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  const stderr = await new Response(add.stderr).text();
-  const exitCode = await add.exited;
+  let stderr = "";
+  let exitCode: number;
+  try {
+    const add = Bun.spawn({
+      cmd: ["git", "add", filePath],
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    stderr = await new Response(add.stderr).text();
+    exitCode = await add.exited;
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new GitStageError(filePath, GIT_COMMAND_NOT_FOUND_EXIT_CODE, reason);
+  }
   if (exitCode !== 0) {
     throw new GitStageError(filePath, exitCode, stderr.trim());
   }
@@ -86,11 +95,22 @@ async function writeStubExclusively(filePath: string, template: string): Promise
   return true;
 }
 
+async function ensureListDir(listDir: string): Promise<void> {
+  try {
+    await mkdir(listDir, { recursive: true });
+  } catch (error) {
+    if (errorCode(error) === "EEXIST") {
+      throw new MigrationsDirectoryNotADirectoryError(listDir);
+    }
+    throw error;
+  }
+}
+
 export async function createMigration(options: CreateOptions): Promise<string> {
   const name = options.name ?? randomName();
   validateMigrationName(name);
   const lang = options.lang ?? "ts";
-  await mkdir(options.listDir, { recursive: true });
+  await ensureListDir(options.listDir);
   let filename = migrationFilename(name, new Date(), lang);
   let filePath = path.join(options.listDir, filename);
   while (!(await writeStubExclusively(filePath, stubTemplate(lang)))) {

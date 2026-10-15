@@ -7,6 +7,7 @@ import {
   withMigrationLock,
 } from "../src/api/lock.js";
 import { MigrationLockError } from "../src/api/options.js";
+import { BunsqlMigrateError } from "../src/core/error.js";
 import { createReservedLock } from "../src/drivers/shared.js";
 
 function makeDriverStub(
@@ -60,11 +61,20 @@ describe("resolveLockTimeout()", () => {
     expect(resolveLockTimeout(7)).toBe(7);
   });
 
-  it("rejects negative, fractional and non-finite values", () => {
+  it("rejects negative, fractional and non-finite values with a usage error", () => {
+    expect(() => resolveLockTimeout(-1)).toThrow(BunsqlMigrateError);
     expect(() => resolveLockTimeout(-1)).toThrow(/lockTimeout/);
     expect(() => resolveLockTimeout(1.5)).toThrow(/lockTimeout/);
     expect(() => resolveLockTimeout(Number.NaN)).toThrow(/lockTimeout/);
     expect(() => resolveLockTimeout(Number.POSITIVE_INFINITY)).toThrow(/lockTimeout/);
+    let caught: unknown;
+    try {
+      resolveLockTimeout(-1);
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(BunsqlMigrateError);
+    expect((caught as BunsqlMigrateError).category).toBe("usage");
   });
 });
 
@@ -127,7 +137,7 @@ describe("withMigrationLock()", () => {
     ).rejects.toThrow("migration-boom");
   });
 
-  it("propagates a release failure after a successful run", async () => {
+  it("keeps the successful result when the release fails", async () => {
     const driver = makeDriverStub({
       tryLock: async () => true,
       releaseLock: async () => {
@@ -135,7 +145,39 @@ describe("withMigrationLock()", () => {
       },
     });
 
-    await expect(withMigrationLock(driver, 30, async () => "done")).rejects.toThrow("release-boom");
+    await expect(withMigrationLock(driver, 30, async () => "done")).resolves.toBe("done");
+  });
+
+  it("keeps waiting when tryLock throws before the deadline", async () => {
+    let calls = 0;
+    const driver = makeDriverStub({
+      tryLock: async () => {
+        calls += 1;
+        if (calls <= 2) {
+          throw new Error("connection-boom");
+        }
+        return true;
+      },
+      releaseLock: async () => undefined,
+    });
+
+    const result = await withMigrationLock(driver, 5, async () => "applied");
+
+    expect(result).toBe("applied");
+    expect(calls).toBe(3);
+  });
+
+  it("throws MigrationLockError when tryLock keeps failing past the timeout", async () => {
+    const driver = makeDriverStub({
+      tryLock: async () => {
+        throw new Error("connection-boom");
+      },
+      releaseLock: async () => undefined,
+    });
+
+    await expect(withMigrationLock(driver, 0, async () => "never")).rejects.toBeInstanceOf(
+      MigrationLockError,
+    );
   });
 
   it("runs without locking when the driver has no lock support", async () => {

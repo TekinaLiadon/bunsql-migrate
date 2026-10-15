@@ -86,7 +86,7 @@ describe("installMigrations()", () => {
   it("throws when no database URL is configured", async () => {
     delete process.env["DATABASE_URL"];
     try {
-      await expect(installMigrations({ listDir })).rejects.toThrow("DATABASE_URL is not set");
+      await expect(installMigrations()).rejects.toThrow("DATABASE_URL is not set");
     } finally {
       process.env["DATABASE_URL"] = options.databaseUrl;
     }

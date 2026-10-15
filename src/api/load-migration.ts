@@ -1,6 +1,6 @@
 import path from "node:path";
 import { type SQL } from "bun";
-import { MigrationFileMissingError } from "./options.js";
+import { InvalidMigrationRecordError, MigrationFileMissingError } from "./options.js";
 
 export type MigrationStep = (tx?: SQL) => Promise<void>;
 
@@ -83,7 +83,14 @@ async function sqlFilePlan(filePath: string): Promise<MigrationStepPlan> {
   };
 }
 
+function assertFlatFileName(file: string): void {
+  if (file.includes("/") || file.includes("\\") || file === "." || file === "..") {
+    throw new InvalidMigrationRecordError(file);
+  }
+}
+
 export async function loadMigration(listDir: string, file: string): Promise<MigrationFunctions> {
+  assertFlatFileName(file);
   const migrationPath = path.join(listDir, file);
   if (!(await Bun.file(migrationPath).exists())) {
     throw new MigrationFileMissingError(file);

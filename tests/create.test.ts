@@ -177,6 +177,27 @@ describe("git staging", () => {
     }
   });
 
+  it("reports GitStageError through the CLI when git is missing from PATH", async () => {
+    const { root, list } = makeListDir("bunsql-git-nogit-");
+    try {
+      const env = {
+        ...envWithoutDatabaseUrl(),
+        PATH: path.dirname(process.execPath),
+      };
+
+      const run = await runCli(["create", "nogit", "--git", "--dir", list], env);
+
+      expect(run.exitCode).toBe(1);
+      expect(run.output).toContain("git add failed");
+      expect(run.output).toContain("not staged");
+      expect(run.output).not.toContain("Migration command failed");
+      const files = readdirSync(list);
+      expect(files.some((file) => file.endsWith("nogit.ts"))).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("propagates GitStageError from createMigrationCommand", async () => {
     const repoDir = mkdtempSync(path.join(tmpdir(), "bunsql-git-cmd-fail-"));
     const originalCwd = process.cwd();

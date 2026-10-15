@@ -189,7 +189,7 @@ describe("pack smoke test (tarball as a consumer sees it)", () => {
   GitStageError,
 } from "bunsql-native-migrate";
 
-await installMigrations({ listDir: "./api-list" });
+await installMigrations();
 const filename = await createMigration({ name: "api_probe", listDir: "./api-list" });
 const first = await migrateUp({ listDir: "./api-list" });
 const { reverted } = await migrateDown({ listDir: "./api-list" });

@@ -2,10 +2,16 @@ import { describe, it, expect } from "bun:test";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { listFiles, MigrationsDirectoryNotFoundError } from "../src/core/fs.js";
+import {
+  listFiles,
+  MigrationsDirectoryNotFoundError,
+  MigrationsDirectoryNotADirectoryError,
+} from "../src/core/fs.js";
 import { migrateUp } from "../src/api/up.js";
 import { migrateStatus } from "../src/api/status.js";
 import { markMigrationsApplied } from "../src/api/mark.js";
+import { migrateDown } from "../src/api/down.js";
+import { migrateRedo } from "../src/api/redo.js";
 import { initMigrations } from "../src/api/init.js";
 import { cliEnv, runCli } from "./helpers.js";
 
@@ -49,12 +55,22 @@ const CONNECTING_COMMANDS = [
     label: "markMigrationsApplied",
     run: (options: { databaseUrl: string; listDir: string }) => markMigrationsApplied(options),
   },
+  {
+    label: "migrateDown",
+    run: (options: { databaseUrl: string; listDir: string }) => migrateDown(options),
+  },
+  {
+    label: "migrateRedo",
+    run: (options: { databaseUrl: string; listDir: string }) => migrateRedo(options),
+  },
 ] as const;
 
 const CLI_COMMANDS = [
   { label: "up", args: ["up"] },
   { label: "status", args: ["status"] },
   { label: "mark --all", args: ["mark", "--all"] },
+  { label: "down", args: ["down"] },
+  { label: "redo", args: ["redo"] },
 ] as const;
 
 describe("listFiles on a missing migrations directory", () => {
@@ -136,6 +152,25 @@ describe("API commands with a missing migrations directory", () => {
       scenario.cleanup();
     }
   });
+
+  it("initMigrations reports a typed error when the path is taken by a file", async () => {
+    const scenario = makeMissingDirScenario("bunsql-init-file-");
+    try {
+      const taken = path.join(scenario.cwd, "occupied");
+      writeFileSync(taken, "a regular file");
+
+      let caught: unknown;
+      try {
+        await initMigrations({ listDir: taken });
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught).toBeInstanceOf(MigrationsDirectoryNotADirectoryError);
+      expect((caught as MigrationsDirectoryNotADirectoryError).message).toContain(taken);
+    } finally {
+      scenario.cleanup();
+    }
+  });
 });
 
 describe("CLI commands with a missing migrations directory", () => {
@@ -159,4 +194,21 @@ describe("CLI commands with a missing migrations directory", () => {
       }
     });
   }
+
+  it("create exits 5 with a typed message when the --dir path is taken by a file", async () => {
+    const scenario = makeMissingDirScenario("bunsql-cli-create-taken-");
+    try {
+      const taken = path.join(scenario.cwd, "occupied");
+      writeFileSync(taken, "a regular file");
+
+      const result = await runCli(["create", "hello", "--dir", taken], cliEnv(), scenario.cwd);
+
+      expect(result.exitCode).toBe(5);
+      expect(result.output).toContain("migrations directory path is taken by a file");
+      expect(result.output).toContain(taken);
+      expect(result.output).not.toContain("Migration command failed");
+    } finally {
+      scenario.cleanup();
+    }
+  });
 });

@@ -8,8 +8,9 @@ import {
   installMigrations,
   createDriver,
   InvalidIdentifierError,
+  BunsqlMigrateError,
 } from "../src/index.js";
-import { makeScenario, readRecorded, readTables, withSqlite } from "./helpers.js";
+import { makeScenario, readRecorded, readTables, runCli, cliEnv, withSqlite } from "./helpers.js";
 
 function writeMigration(listDir: string, file: string, table: string): void {
   writeFileSync(
@@ -201,15 +202,37 @@ describe("identifier validation", () => {
     }
   });
 
-  it("rejects the schema option on non-postgres URLs", async () => {
+  it("rejects the schema option on non-postgres URLs with a usage error", async () => {
     const scenario = makeScenario("bunsql-table-");
     try {
       await expect(
         createDriver(`sqlite:${scenario.dbPath}`, { schema: "private" }),
       ).rejects.toThrow(/schema.*postgres|postgres.*schema/i);
-      await expect(
-        createDriver("mysql://user:pass@localhost:3306/db", { schema: "private" }),
-      ).rejects.toThrow(/schema.*postgres|postgres.*schema/i);
+      let caught: unknown;
+      try {
+        await createDriver("mysql://user:pass@localhost:3306/db", { schema: "private" });
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught).toBeInstanceOf(BunsqlMigrateError);
+      expect((caught as BunsqlMigrateError).category).toBe("usage");
+      expect(existsSync(scenario.dbPath)).toBe(false);
+    } finally {
+      scenario.cleanup();
+    }
+  });
+
+  it("the CLI exits 5 for schema on a non-postgres URL without a generic dump", async () => {
+    const scenario = makeScenario("bunsql-table-");
+    try {
+      const result = await runCli(
+        ["install", "--url", `sqlite:${scenario.dbPath}`, "--schema", "private"],
+        cliEnv(),
+      );
+
+      expect(result.exitCode).toBe(5);
+      expect(result.output).toContain("only supported for postgres URLs");
+      expect(result.output).not.toContain("Migration command failed");
       expect(existsSync(scenario.dbPath)).toBe(false);
     } finally {
       scenario.cleanup();

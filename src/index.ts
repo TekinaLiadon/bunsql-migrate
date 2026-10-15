@@ -7,7 +7,10 @@ import {
 import { BunsqlMigrateError, type MigrationErrorCategory } from "./core/error.js";
 import { InvalidIdentifierError } from "./core/identifiers.js";
 import { InvalidConfigError, loadProjectConfig, type ProjectConfig } from "./core/config.js";
-import { MigrationsDirectoryNotFoundError } from "./core/fs.js";
+import {
+  MigrationsDirectoryNotFoundError,
+  MigrationsDirectoryNotADirectoryError,
+} from "./core/fs.js";
 import { migrateUp } from "./api/up.js";
 import { migrateDown } from "./api/down.js";
 import { migrateRedo } from "./api/redo.js";
@@ -31,6 +34,7 @@ import {
   DatabaseWaitTimeoutError,
   GitStageError,
   InvalidMigrationNameError,
+  InvalidMigrationRecordError,
   MigrationFileMissingError,
   MigrationLockError,
   MigrationNotFoundError,
@@ -54,10 +58,12 @@ export {
   InvalidConfigError,
   InvalidIdentifierError,
   InvalidMigrationNameError,
+  InvalidMigrationRecordError,
   MigrationFileMissingError,
   MigrationLockError,
   MigrationNotFoundError,
   MigrationsDirectoryNotFoundError,
+  MigrationsDirectoryNotADirectoryError,
 };
 export type {
   DriverTableOptions,

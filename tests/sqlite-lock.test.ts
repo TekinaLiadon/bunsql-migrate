@@ -3,6 +3,8 @@ import { mkdtempSync, readdirSync, rmSync, writeFileSync, existsSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createSqliteFileLock, sqliteLockPath } from "../src/drivers/sqlite-lock.js";
+import { createSqlDriver, type SqlLock } from "../src/drivers/shared.js";
+import { createDriver } from "../src/index.js";
 
 let tempDir = "";
 
@@ -142,5 +144,45 @@ describe("createSqliteFileLock()", () => {
     await lock.tryLock(5);
     await lock.dispose();
     expect(existsSync(lockPath)).toBe(false);
+  });
+});
+
+describe("createSqlDriver().close()", () => {
+  it("closes the database even when the lock dispose fails", async () => {
+    const dir = makeTempDir();
+    const dbPath = path.join(dir, "dispose.db");
+    const holder = await createDriver(`sqlite:${dbPath}`);
+    await holder.install();
+
+    const brokenLock: SqlLock = {
+      tryLock: async () => true,
+      releaseLock: async () => undefined,
+      dispose: async () => {
+        throw new Error("dispose-boom");
+      },
+    };
+    const locked = await createSqlDriver(
+      `sqlite:${dbPath}`,
+      {
+        install: async () => undefined,
+        record: async () => undefined,
+        createLock: () => brokenLock,
+      },
+      "migrations",
+    );
+
+    const closeError = await locked.close().then(
+      () => null,
+      (caught: unknown) => caught,
+    );
+    expect(closeError).toBeInstanceOf(Error);
+    expect((closeError as Error).message).toBe("dispose-boom");
+
+    const queryError = await locked.client!()`SELECT 1`.then(
+      () => null,
+      (caught: unknown) => caught,
+    );
+    expect(queryError).toBeInstanceOf(Error);
+    await holder.close();
   });
 });

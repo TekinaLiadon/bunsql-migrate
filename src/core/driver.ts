@@ -1,4 +1,5 @@
 import { type SQL } from "bun";
+import { BunsqlMigrateError } from "./error.js";
 
 export interface ExecutedMigration {
   name: string;
@@ -59,7 +60,8 @@ export async function createDriver(
     }
   }
   if (options.schema !== undefined && protocol !== "postgres" && protocol !== "postgresql") {
-    throw new Error(
+    throw new BunsqlMigrateError(
+      "usage",
       "The schema option is only supported for postgres URLs — MySQL/MariaDB selects the database in the URL, SQLite has no schemas",
     );
   }
