@@ -145,9 +145,10 @@ src/
 8. When changing the public API, update `README.md` and `src/index.ts` exports in the same change.
 9. On larger changes (new API function, driver, CLI command, scripts, CI) — update AGENTS.md within the same change.
 10. Never commit or push unless the user explicitly asked — even if the change is needed on a remote branch (e.g. for CI on a PR). Changes stay in the working tree; committing and pushing is the user's call.
-11. Tests cover both the happy flow and failure scenarios: identify at which step a failure is possible and how the app must handle it.
-12. Keep code coverage at 90% or higher.
-13. Any non-trivial arithmetic (sums of several numbers, multi-digit multiplication/division, percentages, proportions, unit/currency conversions, date math, statistics — anything beyond trivial mental math with small numbers) is executed as code (a shell one-liner or REPL), never computed in your head.
+11. Commit messages are short and to the point: one imperative line saying what changed and why (≤ 72 chars); a body only when the reason is not obvious. No walls of text — details belong in the code, README or backlog.
+12. Tests cover both the happy flow and failure scenarios: identify at which step a failure is possible and how the app must handle it.
+13. Keep code coverage at 90% or higher.
+14. Any non-trivial arithmetic (sums of several numbers, multi-digit multiplication/division, percentages, proportions, unit/currency conversions, date math, statistics — anything beyond trivial mental math with small numbers) is executed as code (a shell one-liner or REPL), never computed in your head.
 
 ## Skills
 
