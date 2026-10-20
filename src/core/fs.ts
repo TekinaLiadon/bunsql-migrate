@@ -51,7 +51,7 @@ export async function assertMigrationsDirectory(listDir: string): Promise<void> 
     throw toMissingDirectoryError(listDir, error);
   }
   if (!isDirectory) {
-    throw new MigrationsDirectoryNotFoundError(listDir);
+    throw new MigrationsDirectoryNotADirectoryError(listDir);
   }
 }
 

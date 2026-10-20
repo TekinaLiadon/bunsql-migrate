@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
+  assertMigrationsDirectory,
   listFiles,
   MigrationsDirectoryNotFoundError,
   MigrationsDirectoryNotADirectoryError,
@@ -38,7 +39,34 @@ function makeMissingDirScenario(prefix: string): MissingDirScenario {
   };
 }
 
-function expectNoDatabaseFile(scenario: MissingDirScenario, dbFile: string): void {
+interface TakenDirScenario {
+  cwd: string;
+  takenPath: string;
+  options(dbFile: string): { databaseUrl: string; listDir: string };
+  dbPath(dbFile: string): string;
+  cleanup(): void;
+}
+
+function makeTakenDirScenario(prefix: string): TakenDirScenario {
+  const dir = mkdtempSync(path.join(tmpdir(), prefix));
+  const takenPath = path.join(dir, "not-a-dir.txt");
+  writeFileSync(takenPath, "not a directory");
+  return {
+    cwd: dir,
+    takenPath,
+    options: (dbFile: string) => ({
+      databaseUrl: `sqlite:${path.join(dir, dbFile)}`,
+      listDir: takenPath,
+    }),
+    dbPath: (dbFile: string) => path.join(dir, dbFile),
+    cleanup: () => rmSync(dir, { recursive: true, force: true }),
+  };
+}
+
+function expectNoDatabaseFile(
+  scenario: MissingDirScenario | TakenDirScenario,
+  dbFile: string,
+): void {
   expect(existsSync(scenario.dbPath(dbFile))).toBe(false);
 }
 
@@ -96,6 +124,40 @@ describe("listFiles on a missing migrations directory", () => {
       const filePath = path.join(scenario.cwd, "not-a-dir.txt");
       writeFileSync(filePath, "not a directory");
       await expect(listFiles(filePath)).rejects.toThrow(MigrationsDirectoryNotFoundError);
+    } finally {
+      scenario.cleanup();
+    }
+  });
+});
+
+describe("assertMigrationsDirectory", () => {
+  it("throws MigrationsDirectoryNotFoundError for a missing path", async () => {
+    const scenario = makeMissingDirScenario("bunsql-assert-missing-");
+    try {
+      const error = await assertMigrationsDirectory(scenario.missingDir).then(
+        () => undefined,
+        (caught: unknown) => caught,
+      );
+      expect(error).toBeInstanceOf(MigrationsDirectoryNotFoundError);
+      expect((error as MigrationsDirectoryNotFoundError).directory).toBe(scenario.missingDir);
+    } finally {
+      scenario.cleanup();
+    }
+  });
+
+  it("throws MigrationsDirectoryNotADirectoryError when the path is a regular file", async () => {
+    const scenario = makeTakenDirScenario("bunsql-assert-taken-");
+    try {
+      const error = await assertMigrationsDirectory(scenario.takenPath).then(
+        () => undefined,
+        (caught: unknown) => caught,
+      );
+      expect(error).toBeInstanceOf(MigrationsDirectoryNotADirectoryError);
+      expect((error as MigrationsDirectoryNotADirectoryError).directory).toBe(scenario.takenPath);
+      expect((error as MigrationsDirectoryNotADirectoryError).message).toContain(
+        scenario.takenPath,
+      );
+      expect((error as MigrationsDirectoryNotADirectoryError).message).toContain("taken by a file");
     } finally {
       scenario.cleanup();
     }
@@ -173,6 +235,46 @@ describe("API commands with a missing migrations directory", () => {
   });
 });
 
+describe("API commands with a migrations path taken by a file", () => {
+  for (const { label, run } of CONNECTING_COMMANDS) {
+    it(`${label} rejects before connecting to the database`, async () => {
+      const scenario = makeTakenDirScenario(`bunsql-${label.toLowerCase()}-taken-`);
+      try {
+        await expect(run(scenario.options(`${label.toLowerCase()}.db`))).rejects.toThrow(
+          MigrationsDirectoryNotADirectoryError,
+        );
+        expectNoDatabaseFile(scenario, `${label.toLowerCase()}.db`);
+      } finally {
+        scenario.cleanup();
+      }
+    });
+  }
+
+  it("migrateUp reports the taken path before an unknown to target", async () => {
+    const scenario = makeTakenDirScenario("bunsql-up-to-taken-");
+    try {
+      await expect(
+        migrateUp({ ...scenario.options("up-to-taken.db"), to: "1_missing.ts" }),
+      ).rejects.toThrow(MigrationsDirectoryNotADirectoryError);
+      expectNoDatabaseFile(scenario, "up-to-taken.db");
+    } finally {
+      scenario.cleanup();
+    }
+  });
+
+  it("migrateUp dry run rejects the same way", async () => {
+    const scenario = makeTakenDirScenario("bunsql-up-dry-taken-");
+    try {
+      await expect(
+        migrateUp({ ...scenario.options("up-dry-taken.db"), dryRun: true }),
+      ).rejects.toThrow(MigrationsDirectoryNotADirectoryError);
+      expectNoDatabaseFile(scenario, "up-dry-taken.db");
+    } finally {
+      scenario.cleanup();
+    }
+  });
+});
+
 describe("CLI commands with a missing migrations directory", () => {
   for (const { label, args } of CLI_COMMANDS) {
     it(`${label} exits 5 with the typed message instead of a raw error dump`, async () => {
@@ -211,4 +313,27 @@ describe("CLI commands with a missing migrations directory", () => {
       scenario.cleanup();
     }
   });
+});
+
+describe("CLI commands with a migrations path taken by a file", () => {
+  for (const { label, args } of CLI_COMMANDS) {
+    it(`${label} exits 5 with the taken-by-a-file message instead of a raw error dump`, async () => {
+      const scenario = makeTakenDirScenario(`bunsql-cli-${label.replaceAll(" ", "-")}-taken-`);
+      const dbFile = `cli-${label.replaceAll(" ", "-")}-taken.db`;
+      try {
+        const result = await runCli(
+          [...args, "--dir", scenario.takenPath, "--url", `sqlite:${scenario.dbPath(dbFile)}`],
+          cliEnv(),
+          scenario.cwd,
+        );
+        expect(result.exitCode).toBe(5);
+        expect(result.output).toContain("migrations directory path is taken by a file");
+        expect(result.output).toContain(scenario.takenPath);
+        expect(result.output).not.toContain("Migration command failed");
+        expectNoDatabaseFile(scenario, dbFile);
+      } finally {
+        scenario.cleanup();
+      }
+    });
+  }
 });
