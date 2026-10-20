@@ -1,5 +1,5 @@
-import { describe, it, expect } from "bun:test";
-import { writeFileSync } from "node:fs";
+import { describe, it, expect, spyOn } from "bun:test";
+import { rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { migrateUp, migrateDown, migrateStatus } from "../src/index.js";
 import { makeScenario, readTables } from "./helpers.js";
@@ -179,6 +179,63 @@ describe("migrateStatus()", () => {
       const applied = await migrateStatus(scenario.options);
       expect(applied.applied.map((entry) => entry.name)).toEqual(["9_first.js"]);
       expect(applied.pending).toEqual([]);
+    } finally {
+      scenario.cleanup();
+    }
+  });
+
+  it("warns about an applied migration whose file is missing from disk", async () => {
+    const scenario = makeScenario("bunsql-status-missing-", "status.db");
+    try {
+      writeMigration(
+        scenario.listDir,
+        "9_first.js",
+        "await tx`CREATE TABLE first_table (id INTEGER)`;",
+      );
+      writeMigration(
+        scenario.listDir,
+        "1_second.js",
+        "await tx`CREATE TABLE second_table (id INTEGER)`;",
+      );
+      await migrateUp(scenario.options);
+      rmSync(path.join(scenario.listDir, "1_second.js"));
+
+      const errorSpy = spyOn(console, "error");
+      try {
+        const status = await migrateStatus(scenario.options);
+
+        expect(status.applied.map((entry) => entry.name)).toEqual(["9_first.js", "1_second.js"]);
+        expect(status.pending).toEqual([]);
+        const warned = errorSpy.mock.calls.map((call) => String(call[1])).join("\n");
+        expect(warned).toContain("1_second.js is applied in the database but missing from");
+        expect(warned).toContain("down/redo will fail until the file is restored");
+      } finally {
+        errorSpy.mockRestore();
+      }
+    } finally {
+      scenario.cleanup();
+    }
+  });
+
+  it("stays silent when every applied migration file is on disk", async () => {
+    const scenario = makeScenario("bunsql-status-present-", "status.db");
+    try {
+      writeMigration(
+        scenario.listDir,
+        "9_first.js",
+        "await tx`CREATE TABLE first_table (id INTEGER)`;",
+      );
+      await migrateUp(scenario.options);
+
+      const errorSpy = spyOn(console, "error");
+      try {
+        await migrateStatus(scenario.options);
+
+        const warned = errorSpy.mock.calls.map((call) => String(call[1])).join("\n");
+        expect(warned).not.toContain("missing from");
+      } finally {
+        errorSpy.mockRestore();
+      }
     } finally {
       scenario.cleanup();
     }

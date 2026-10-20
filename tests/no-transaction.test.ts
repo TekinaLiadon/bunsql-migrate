@@ -5,7 +5,7 @@ import { type SQL } from "bun";
 import type { MigrationDriver } from "../src/core/driver.js";
 import { runMigrationStep } from "../src/api/run-step.js";
 import { loadMigration } from "../src/api/load-migration.js";
-import { migrateDown, migrateUp } from "../src/index.js";
+import { BunsqlMigrateError, migrateDown, migrateUp } from "../src/index.js";
 import { makeScenario, readRecorded, readTables } from "./helpers.js";
 
 function makeStepDriverStub(
@@ -74,9 +74,17 @@ describe("runMigrationStep noTransaction", () => {
       },
     });
 
-    await expect(
-      runMigrationStep(driver, { step: async () => {}, noTransaction: true }),
-    ).rejects.toThrow(/noTransaction/);
+    const error = await runMigrationStep(driver, {
+      step: async () => {},
+      noTransaction: true,
+    }).then(
+      () => null,
+      (caught: unknown) => caught,
+    );
+
+    expect(error).toBeInstanceOf(BunsqlMigrateError);
+    expect((error as BunsqlMigrateError).category).toBe("generic");
+    expect((error as Error).message).toMatch(/noTransaction/);
   });
 });
 
@@ -230,9 +238,14 @@ export { up };
 `,
       );
 
-      await expect(migrateUp(scenario.options)).rejects.toThrow(
-        /outside the migration transaction/,
+      const error = await migrateUp(scenario.options).then(
+        () => null,
+        (caught: unknown) => caught,
       );
+
+      expect(error).toBeInstanceOf(BunsqlMigrateError);
+      expect((error as BunsqlMigrateError).category).toBe("usage");
+      expect((error as Error).message).toMatch(/outside the migration transaction/);
       expect(readRecorded(scenario.dbPath)).toEqual([]);
     } finally {
       scenario.cleanup();
@@ -251,9 +264,14 @@ export { up };
 `,
       );
 
-      await expect(migrateUp(scenario.options)).rejects.toThrow(
-        /outside the migration transaction/,
+      const error = await migrateUp(scenario.options).then(
+        () => null,
+        (caught: unknown) => caught,
       );
+
+      expect(error).toBeInstanceOf(BunsqlMigrateError);
+      expect((error as BunsqlMigrateError).category).toBe("usage");
+      expect((error as Error).message).toMatch(/outside the migration transaction/);
       expect(readRecorded(scenario.dbPath)).toEqual([]);
     } finally {
       scenario.cleanup();

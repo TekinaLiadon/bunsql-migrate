@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createDriver, redactDatabaseUrl } from "../src/core/driver.js";
+import { BunsqlMigrateError } from "../src/core/error.js";
 import { withSqlite } from "./helpers.js";
 
 const SQLITE_URL = "sqlite://:memory:";
@@ -23,12 +24,26 @@ describe("createDriver() — SQLite", () => {
     expect(driver).toBeDefined();
   });
 
-  it("rejects an unsupported URL protocol", async () => {
-    expect(createDriver("oracle://localhost")).rejects.toThrow("Unsupported database URL protocol");
+  it("rejects an unsupported URL protocol with a usage error", async () => {
+    const error = await createDriver("oracle://localhost").then(
+      () => null,
+      (caught: unknown) => caught,
+    );
+
+    expect(error).toBeInstanceOf(BunsqlMigrateError);
+    expect((error as BunsqlMigrateError).category).toBe("usage");
+    expect((error as Error).message).toContain("Unsupported database URL protocol");
   });
 
-  it("rejects an unparseable URL", async () => {
-    expect(createDriver("not a url")).rejects.toThrow("Cannot parse database URL");
+  it("rejects an unparseable URL with a usage error", async () => {
+    const error = await createDriver("not a url").then(
+      () => null,
+      (caught: unknown) => caught,
+    );
+
+    expect(error).toBeInstanceOf(BunsqlMigrateError);
+    expect((error as BunsqlMigrateError).category).toBe("usage");
+    expect((error as Error).message).toContain("Cannot parse database URL");
   });
 
   it("rejects an unparseable URL without leaking the password", async () => {
@@ -37,6 +52,8 @@ describe("createDriver() — SQLite", () => {
       (caught: unknown) => caught,
     );
 
+    expect(error).toBeInstanceOf(BunsqlMigrateError);
+    expect((error as BunsqlMigrateError).category).toBe("usage");
     expect((error as Error).message).toBe(
       "Cannot parse database URL: postgres://user:***@localhost:54x32/db",
     );

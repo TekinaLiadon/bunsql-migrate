@@ -1,5 +1,4 @@
 import path from "node:path";
-import type { ExecutedMigration } from "../core/driver.js";
 import {
   assertMigrationsDirectory,
   checksumFiles,
@@ -24,21 +23,7 @@ import {
 } from "./pending.js";
 import { resolveLockTimeout, withMigrationLock } from "./lock.js";
 import { loadExecutedHistory } from "./tracking-table.js";
-
-function warnAppliedButMissingFiles(
-  listDir: string,
-  executed: readonly ExecutedMigration[],
-  allFiles: readonly string[],
-): void {
-  const files = new Set(allFiles);
-  for (const entry of executed) {
-    if (files.has(entry.name)) continue;
-    log({
-      text: `${entry.name} is applied in the database but missing from ${listDir} — down/redo will fail until the file is restored or its record removed`,
-      type: "warn",
-    });
-  }
-}
+import { warnAppliedButMissingFiles } from "./applied-files.js";
 
 export async function migrateUp(options: MigrateUpOptions = {}): Promise<MigrateUpResult> {
   const listDir = resolveListDir(options.listDir);

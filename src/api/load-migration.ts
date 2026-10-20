@@ -1,5 +1,6 @@
 import path from "node:path";
 import { type SQL } from "bun";
+import { BunsqlMigrateError } from "../core/error.js";
 import { InvalidMigrationRecordError, MigrationFileMissingError } from "./options.js";
 
 export type MigrationStep = (tx?: SQL) => Promise<void>;
@@ -68,7 +69,8 @@ function assertExplicitTransactionMode(
   step: MigrationStep,
 ): void {
   if (step.length > 0 || !hasParameterList(step)) return;
-  throw new Error(
+  throw new BunsqlMigrateError(
+    "usage",
     `${file}: ${direction}() declares its parameter with a default value or as a rest parameter — ` +
       `function.length is 0, so the step would silently run outside the migration transaction; ` +
       `declare the parameter without a default (async (tx) => …) or add "export const noTransaction = true" to opt out explicitly`,

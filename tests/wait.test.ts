@@ -106,6 +106,47 @@ describe("waitForDatabase()", () => {
     release?.();
     expect(await hanging).toBe("connected-too-late");
   });
+
+  it("discards a late successful attempt after the deadline", async () => {
+    let resolveAttempt: ((value: string) => void) | undefined;
+    const attempt = () =>
+      new Promise<string>((resolve) => {
+        resolveAttempt = resolve;
+      });
+    const discarded: string[] = [];
+
+    const error = await waitForDatabase(attempt, 1, 1, async (value) => {
+      discarded.push(value);
+    }).then(
+      () => null,
+      (caught: unknown) => caught,
+    );
+
+    expect(error).toBeInstanceOf(DatabaseWaitTimeoutError);
+    expect(discarded).toEqual([]);
+
+    resolveAttempt?.("connected-too-late");
+    await Bun.sleep(10);
+
+    expect(discarded).toEqual(["connected-too-late"]);
+  });
+
+  it("never discards an attempt that wins the race", async () => {
+    let discarded = 0;
+
+    const result = await waitForDatabase(
+      async () => "connected",
+      5,
+      1,
+      async () => {
+        discarded += 1;
+      },
+    );
+    await Bun.sleep(10);
+
+    expect(result).toBe("connected");
+    expect(discarded).toBe(0);
+  });
 });
 
 describe("DatabaseWaitTimeoutError", () => {

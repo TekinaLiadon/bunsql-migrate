@@ -15,7 +15,7 @@ import { migrateUp } from "./api/up.js";
 import { migrateDown } from "./api/down.js";
 import { migrateRedo } from "./api/redo.js";
 import { migrateStatus } from "./api/status.js";
-import { installMigrations } from "./api/install.js";
+import { installMigrations, type InstallOptions } from "./api/install.js";
 import { createMigration, type CreateOptions, type MigrationLang } from "./api/create.js";
 import { initMigrations, type InitOptions, type InitResult } from "./api/init.js";
 import { markMigrationsApplied } from "./api/mark.js";
@@ -82,6 +82,7 @@ export type {
   MigrateStatusResult,
   CreateOptions,
   MigrationLang,
+  InstallOptions,
   InitOptions,
   InitResult,
   ProjectConfig,

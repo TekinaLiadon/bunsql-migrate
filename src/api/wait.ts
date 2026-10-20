@@ -13,12 +13,13 @@ export async function waitForDatabase<T>(
   attempt: () => Promise<T>,
   timeoutSeconds: number,
   retryDelayMs: number = WAIT_RETRY_DELAY_MS,
+  discardLateResult?: (value: T) => Promise<void>,
 ): Promise<T> {
   const deadline = Date.now() + timeoutSeconds * 1000;
   let waitingLogged = false;
   while (true) {
     try {
-      return await attemptWithinDeadline(attempt, deadline, timeoutSeconds);
+      return await attemptWithinDeadline(attempt, deadline, timeoutSeconds, discardLateResult);
     } catch (error) {
       if (Date.now() >= deadline) {
         throw error instanceof DatabaseWaitTimeoutError
@@ -34,24 +35,32 @@ export async function waitForDatabase<T>(
   }
 }
 
-function attemptWithinDeadline<T>(
+async function attemptWithinDeadline<T>(
   attempt: () => Promise<T>,
   deadline: number,
   timeoutSeconds: number,
+  discardLateResult: ((value: T) => Promise<void>) | undefined,
 ): Promise<T> {
   if (timeoutSeconds <= 0) {
     return attempt();
   }
   const pending = attempt();
   pending.catch(() => undefined);
-  const expired = Bun.sleep(Math.max(deadline - Date.now(), 0)).then(() => {
-    throw new DatabaseWaitTimeoutError(
-      timeoutSeconds,
-      new Error("connection attempt still in progress"),
-    );
-  });
-  expired.catch(() => undefined);
-  return Promise.race([pending, expired]);
+  const expired = Bun.sleep(Math.max(deadline - Date.now(), 0)).then(() => "expired" as const);
+  const outcome = await Promise.race([
+    pending.then((value) => ({ status: "connected" as const, value })),
+    expired.then((status) => ({ status })),
+  ]);
+  if (outcome.status === "connected") {
+    return outcome.value;
+  }
+  if (discardLateResult !== undefined) {
+    void pending.then((value) => discardLateResult(value)).catch(() => undefined);
+  }
+  throw new DatabaseWaitTimeoutError(
+    timeoutSeconds,
+    new Error("connection attempt still in progress"),
+  );
 }
 
 async function connectProbed(
@@ -85,5 +94,10 @@ export async function connectDriver(
     return createDriver(databaseUrl, tableOptions);
   }
   await assertDriverConfig(databaseUrl, tableOptions);
-  return waitForDatabase(() => connectProbed(databaseUrl, tableOptions), waitTimeout);
+  return waitForDatabase(
+    () => connectProbed(databaseUrl, tableOptions),
+    waitTimeout,
+    WAIT_RETRY_DELAY_MS,
+    (driver) => driver.close(),
+  );
 }

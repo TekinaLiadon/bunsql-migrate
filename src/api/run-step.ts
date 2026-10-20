@@ -1,5 +1,6 @@
 import { type SQL } from "bun";
 import type { MigrationDriver } from "../core/driver.js";
+import { BunsqlMigrateError } from "../core/error.js";
 import type { MigrationStepPlan } from "./load-migration.js";
 
 export async function runMigrationStep(
@@ -25,7 +26,8 @@ function runOutsideTransaction(
 ): Promise<void> {
   const client = driver.client?.();
   if (client === undefined) {
-    throw new Error(
+    throw new BunsqlMigrateError(
+      "generic",
       "this driver does not expose a non-transactional client — the noTransaction marker is unsupported here",
     );
   }

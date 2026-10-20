@@ -148,6 +148,45 @@ describe("CLI exit codes", () => {
     }
   });
 
+  it("exits 5 on an unparseable or unsupported database URL", async () => {
+    const scenario = makeScenario("bunsql-exit-url-", "db.sqlite");
+    try {
+      const malformed = await runCli(["up", "--url", "not a url"], envFor(scenario));
+      expect(malformed.exitCode).toBe(EXIT_USAGE);
+      expect(malformed.output).toContain("Cannot parse database URL");
+      expect(malformed.output).not.toContain("Migration command failed");
+
+      const unsupported = await runCli(["up", "--url", "oracle://localhost"], envFor(scenario));
+      expect(unsupported.exitCode).toBe(EXIT_USAGE);
+      expect(unsupported.output).toContain("Unsupported database URL protocol");
+      expect(unsupported.output).not.toContain("Migration command failed");
+    } finally {
+      scenario.cleanup();
+    }
+  });
+
+  it("exits 5 when a migration declares its tx parameter with a default", async () => {
+    const scenario = makeScenario("bunsql-exit-arity-", "db.sqlite");
+    try {
+      writeFileSync(
+        path.join(scenario.listDir, "1_default.js"),
+        `const up = async (tx = sql) => {
+  await tx\`SELECT 1\`;
+};
+export { up };
+`,
+      );
+
+      const up = await runCli(["up"], envFor(scenario));
+
+      expect(up.exitCode).toBe(EXIT_USAGE);
+      expect(up.output).toContain("outside the migration transaction");
+      expect(up.output).not.toContain("Migration command failed");
+    } finally {
+      scenario.cleanup();
+    }
+  });
+
   it("exits 1 on an unexpected failure", async () => {
     const scenario = makeScenario("bunsql-exit-generic-", "db.sqlite");
     try {

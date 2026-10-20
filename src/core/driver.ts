@@ -56,7 +56,10 @@ export async function createDriver(
     if (databaseUrl.startsWith("sqlite:")) {
       protocol = "sqlite";
     } else {
-      throw new Error(`Cannot parse database URL: ${redactDatabaseUrl(databaseUrl)}`);
+      throw new BunsqlMigrateError(
+        "usage",
+        `Cannot parse database URL: ${redactDatabaseUrl(databaseUrl)}`,
+      );
     }
   }
   if (options.schema !== undefined && protocol !== "postgres" && protocol !== "postgresql") {
@@ -81,7 +84,8 @@ export async function createDriver(
       return mod.create(databaseUrl, options);
     }
     default:
-      throw new Error(
+      throw new BunsqlMigrateError(
+        "usage",
         `Unsupported database URL protocol: ${protocol}. Supported: postgres, mariadb/mysql, sqlite.`,
       );
   }

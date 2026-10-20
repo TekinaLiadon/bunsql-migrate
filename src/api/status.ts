@@ -3,6 +3,7 @@ import { getDatabaseUrl } from "../core/env.js";
 import type { MigrateOptions, MigrateStatusResult } from "./options.js";
 import { runWithDriver } from "./run-with-driver.js";
 import { ensureTrackingTable } from "./tracking-table.js";
+import { warnAppliedButMissingFiles } from "./applied-files.js";
 
 export async function migrateStatus(options: MigrateOptions = {}): Promise<MigrateStatusResult> {
   const listDir = resolveListDir(options.listDir);
@@ -15,6 +16,7 @@ export async function migrateStatus(options: MigrateOptions = {}): Promise<Migra
 
     const files = await listMigrationFiles(listDir);
     const executed = await driver.listExecuted();
+    warnAppliedButMissingFiles(listDir, executed, files);
     const appliedNames = new Set(executed.map((entry) => entry.name));
 
     return {

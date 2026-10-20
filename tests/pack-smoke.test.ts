@@ -236,6 +236,7 @@ console.log("API-SMOKE-OK", executed.length);
   type CreateOptions,
   type InitOptions,
   type InitResult,
+  type InstallOptions,
   type MigrationLang,
   type MigrateUpResult,
   type MigrateStatusResult,
@@ -250,12 +251,14 @@ const lang: MigrationLang = "ts";
 const createOptions: CreateOptions = { name: "types_probe", lang, listDir: "./types-list" };
 const initOptions: InitOptions = { listDir: "./types-list" };
 const initResult: InitResult = { created: true, filename: null };
+const installOptions: InstallOptions = { databaseUrl: "sqlite:./types-probe.db" };
 console.log(
   applied.length,
   status.pending.length,
   createOptions.name,
   initOptions.listDir,
   initResult.created,
+  installOptions.databaseUrl,
 );
 `,
     );
